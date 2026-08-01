@@ -504,8 +504,19 @@ export default function Settings() {
          return;
       }
       
-      const batch = writeBatch(db);
-      
+      const cleanData = (obj: any): any => {
+        if (obj === null || obj === undefined) return null;
+        if (typeof obj !== 'object') return obj;
+        if (Array.isArray(obj)) return obj.map(cleanData);
+        const result: any = {};
+        for (const [k, v] of Object.entries(obj)) {
+          if (v !== undefined) {
+            result[k] = cleanData(v);
+          }
+        }
+        return result;
+      };
+
       const collectionsMap: any = {
         employees: 'employees',
         checks: 'checks',
@@ -521,6 +532,8 @@ export default function Settings() {
         transfers: 'transfers',
         inventory_sales: 'inventory_sales'
       };
+
+      const operations: { docRef: any; data: any }[] = [];
       
       for (const [key, collectionName] of Object.entries(collectionsMap)) {
         const listName = key === 'inventory' ? 'inventory' : key;
@@ -528,7 +541,7 @@ export default function Settings() {
            for (const item of importedData[listName]) {
              const docId = item.id || crypto.randomUUID();
              const docRef = doc(db, collectionName as string, docId);
-             const dataToSave = { ...item };
+             const dataToSave = cleanData({ ...item });
              delete dataToSave.id;
              
              if (dataToSave.hasOwnProperty('enterpriseId') || collectionName === 'employees' || collectionName === 'sales' || collectionName === 'collections' || collectionName === 'checks' || collectionName === 'budgets') {
@@ -538,15 +551,33 @@ export default function Settings() {
                dataToSave.userId = activeUid;
              }
              
-             batch.set(docRef, dataToSave, { merge: true });
+             operations.push({ docRef, data: dataToSave });
            }
         }
       }
+
+      if (operations.length === 0) {
+        showToast("No se encontraron registros para importar en el archivo JSON", "error");
+        setLoading(false);
+        setBackupPin('');
+        if (e.target) e.target.value = '';
+        return;
+      }
+
+      const BATCH_SIZE = 400;
+      const totalBatches = Math.ceil(operations.length / BATCH_SIZE);
+
+      for (let i = 0; i < totalBatches; i++) {
+        const currentBatch = writeBatch(db);
+        const chunk = operations.slice(i * BATCH_SIZE, (i + 1) * BATCH_SIZE);
+        for (const op of chunk) {
+          currentBatch.set(op.docRef, op.data, { merge: true });
+        }
+        await currentBatch.commit();
+      }
       
-      await batch.commit();
-      
-      showToast(`Base de datos restaurada en modo: ${mode === 'merge' ? 'Fusión' : 'Sobreescritura'}`, "success");
-      await logAudit(AuditAction.SETTINGS_UPDATE, `Importación de base de datos completa (${mode})`);
+      showToast(`Base de datos restaurada con éxito (${operations.length} registros en modo ${mode === 'merge' ? 'Fusión' : 'Sobreescritura'})`, "success");
+      await logAudit(AuditAction.SETTINGS_UPDATE, `Importación de base de datos completa (${operations.length} registros en modo ${mode})`);
     } catch (err) {
       console.error(err);
       showToast("Error importando", "error");

@@ -11,6 +11,13 @@ export interface ChangelogRelease {
 
 export const staticChangelog: ChangelogRelease[] = [
   {
+    version: "4.19.1",
+    date: new Date().toISOString(),
+    changes: [
+      "Optimización de Importación Masiva: Se corrigió el error al importar archivos JSON con más de 500 registros procesándolos en lotes fragmentados (batches) de 400 escrituras y limpiando valores no definidos para garantizar el guardado en Firestore sin sobrepasar los límites de transacción."
+    ]
+  },
+  {
     version: "4.19.0",
     date: new Date().toISOString(),
     changes: [

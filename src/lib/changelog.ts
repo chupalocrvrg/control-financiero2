@@ -11,6 +11,13 @@ export interface ChangelogRelease {
 
 export const staticChangelog: ChangelogRelease[] = [
   {
+    version: "4.19.3",
+    date: new Date().toISOString(),
+    changes: [
+      "Ajuste de Reglas de Seguridad Firestore: Se actualizaron las reglas de seguridad desplegadas en Firebase para permitir que la importación y migración de respaldos en colecciones de cheques, facturas y beneficiarios reconozca la propiedad del usuario/empresa sin bloquearse por restricciones históricas de timestamp o referencias cruzadas."
+    ]
+  },
+  {
     version: "4.19.2",
     date: new Date().toISOString(),
     changes: [

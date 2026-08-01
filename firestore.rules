@@ -47,6 +47,7 @@ service cloud.firestore {
     function isEnterpriseData(data) {
       return isAccountActive() && (
         isAdmin() || 
+        ('userId' in data && data.userId == request.auth.uid) ||
         (
           'enterpriseId' in data && (
             data.enterpriseId == request.auth.uid || 
@@ -150,19 +151,13 @@ service cloud.firestore {
     }
 
     match /beneficiaries/{id} {
-      allow read, list: if isVerified() && isEnterpriseData(resource.data);
-      allow create: if isAccountActive() && isValidBeneficiary(incoming()) && isValidId(id) &&
-                    incoming().createdAt == request.time;
-      allow update: if isVerified() && isEnterpriseData(resource.data);
-      allow delete: if isVerified() && isEnterpriseData(resource.data);
+      allow read, delete: if isVerified() && isEnterpriseData(resource.data);
+      allow create, update: if isVerified() && isEnterpriseData(incoming());
     }
 
     match /invoices/{id} {
-      allow read, list: if isVerified() && isEnterpriseData(resource.data);
-      allow create: if isAccountActive() && isValidInvoice(incoming()) && isValidId(id) &&
-                    incoming().createdAt == request.time;
-      allow update: if isVerified() && isEnterpriseData(resource.data);
-      allow delete: if isVerified() && isEnterpriseData(resource.data);
+      allow read, delete: if isVerified() && isEnterpriseData(resource.data);
+      allow create, update: if isVerified() && isEnterpriseData(incoming());
     }
 
     match /employees/{id} {
@@ -207,36 +202,8 @@ service cloud.firestore {
     }
 
     match /checks/{id} {
-      allow read, list: if isVerified() && isEnterpriseData(resource.data);
-      
-      allow create: if isAccountActive() && isValidCheck(incoming()) && isValidId(id) && 
-                    exists(/databases/$(database)/documents/invoices/$(incoming().invoiceId)) &&
-                    incoming().createdAt == request.time;
-      
-      allow update: if isVerified() && (
-        isAdmin() || (
-          isEnterpriseData(resource.data) &&
-          isValidCheck(incoming()) &&
-          incoming().userId == existing().userId &&
-          incoming().invoiceId == existing().invoiceId &&
-          incoming().createdAt == existing().createdAt &&
-          (
-            // Action: Mark as Paid
-            (existing().status == 'PENDING' && incoming().status == 'PAID' && 
-             incoming().diff(existing()).affectedKeys().hasOnly(['status', 'paidAt', 'paidBy', 'amount'])) ||
-            // Action: Soft Delete (from PENDING or PAID)
-            ((existing().status == 'PENDING' || existing().status == 'PAID') && incoming().status == 'DELETED' &&
-             incoming().diff(existing()).affectedKeys().hasOnly(['status'])) ||
-            // Action: Restore
-            (existing().status == 'DELETED' && incoming().status == 'PENDING' &&
-             incoming().diff(existing()).affectedKeys().hasOnly(['status'])) ||
-            // Allow general updates if still PENDING?
-            (existing().status == 'PENDING' && incoming().status == 'PENDING')
-          )
-        )
-      );
-      
-      allow delete: if isVerified() && isEnterpriseData(resource.data);
+      allow read, delete: if isVerified() && isEnterpriseData(resource.data);
+      allow create, update: if isVerified() && isEnterpriseData(incoming());
     }
 
     match /settings/{userId} {

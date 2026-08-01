@@ -586,6 +586,11 @@ export default function Settings() {
     } catch (err: any) {
       console.error("Error importando:", err);
       showToast("Error importando: " + (err?.message || "Error desconocido al procesar el archivo JSON"), "error");
+      try {
+        handleFirestoreError(err, OperationType.WRITE, 'settings/import');
+      } catch (e) {
+        // Logged error details
+      }
     } finally {
       setLoading(false);
       setBackupPin('');

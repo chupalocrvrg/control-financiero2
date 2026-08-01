@@ -1,0 +1,133 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile containing company or personal information.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Company or person name" },
+        "ruc": { "type": "string", "description": "RUC or ID number (optional)" },
+        "phone": { "type": "string", "description": "Contact number (optional)" },
+        "email": { "type": "string", "description": "User email" },
+        "pin": { "type": "string", "description": "6-digit security PIN" },
+        "pinInactivityLimit": { "type": "number", "description": "PIN timeout in minutes" },
+        "lastPinEntry": { "type": "string", "format": "date-time" },
+        "subscriptionEnd": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["ENABLED", "DISABLED"] },
+        "role": { "type": "string", "enum": ["ADMIN", "USER"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "email", "createdAt", "pin", "status", "role", "subscriptionEnd"]
+    },
+    "Beneficiary": {
+      "title": "Beneficiary",
+      "description": "Saved beneficiaries for autocomplete.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner user ID" },
+        "name": { "type": "string", "description": "Beneficiary name" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "name", "createdAt"]
+    },
+    "Invoice": {
+      "title": "Invoice",
+      "description": "Invoice details that generate checks.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner user ID" },
+        "beneficiaryName": { "type": "string", "description": "Beneficiary name" },
+        "invoiceNumber": { "type": "string", "description": "Invoice number (optional)" },
+        "concept": { "type": "string", "description": "Payment concept" },
+        "totalValue": { "type": "number", "description": "Total invoice value" },
+        "discountType": { "type": "string", "enum": ["none", "percentage", "fixed"] },
+        "discountValue": { "type": "number" },
+        "retentionType": { "type": "string" },
+        "retentionPercentage": { "type": "number" },
+        "finalTotal": { "type": "number", "description": "Total to pay after discounts and retentions" },
+        "months": { "type": "number", "description": "Number of installments" },
+        "firstPaymentDate": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "beneficiaryName", "concept", "totalValue", "finalTotal", "months", "firstPaymentDate", "createdAt"]
+    },
+    "Check": {
+      "title": "Check",
+      "description": "Individual check payment.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner user ID" },
+        "invoiceId": { "type": "string", "description": "Parent invoice ID" },
+        "beneficiaryName": { "type": "string", "description": "Beneficiary name" },
+        "checkNumber": { "type": "string", "description": "Check number" },
+        "concept": { "type": "string", "description": "Payment concept" },
+        "amount": { "type": "number", "description": "Check amount" },
+        "dueDate": { "type": "string", "format": "date-time", "description": "Payment due date" },
+        "status": { "type": "string", "enum": ["PENDING", "PAID", "DELETED"] },
+        "paidAt": { "type": "string", "format": "date-time" },
+        "paidBy": { "type": "string", "description": "Email of user who confirmed payment" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "invoiceId", "beneficiaryName", "checkNumber", "concept", "amount", "dueDate", "status", "createdAt"]
+    },
+    "AuditLog": {
+      "title": "Audit Log",
+      "description": "System audit logs for tracking critical actions.",
+      "type": "object",
+      "properties": {
+        "action": { "type": "string", "description": "Action performed" },
+        "details": { "type": "string", "description": "Human readable details" },
+        "targetId": { "type": "string", "description": "ID of related entity" },
+        "userId": { "type": "string", "description": "UID of actor" },
+        "userEmail": { "type": "string", "description": "Email of actor" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["action", "details", "userId", "userEmail", "timestamp"]
+    },
+    "Settings": {
+      "title": "Settings",
+      "description": "User settings for reports.",
+      "type": "object",
+      "properties": {
+        "recipients": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "phone": { "type": "string" },
+              "email": { "type": "string" }
+            }
+          }
+        },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "User profiles."
+    },
+    "beneficiaries/{docId}": {
+      "schema": "Beneficiary",
+      "description": "Saved beneficiaries."
+    },
+    "invoices/{docId}": {
+      "schema": "Invoice",
+      "description": "Invoices generating checks."
+    },
+    "checks/{docId}": {
+      "schema": "Check",
+      "description": "Individual checks."
+    },
+    "settings/{userId}": {
+      "schema": "Settings",
+      "description": "User settings."
+    },
+    "auditLogs/{docId}": {
+      "schema": "AuditLog",
+      "description": "System audit records."
+    }
+  }
+}

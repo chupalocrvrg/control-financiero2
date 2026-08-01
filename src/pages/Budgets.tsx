@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { logAudit, AuditAction } from '../lib/audit';
 import { format, startOfMonth, addMonths, subMonths, parse } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { unifyEmployeesAndBudgets, getDerickEnterpriseUid } from '../lib/enterprise';
 
 interface Employee {
   id: string;
@@ -42,28 +43,58 @@ export default function Budgets() {
     try {
       setLoading(true);
       setError(null);
-      
-      // Fetch employees belonging to current enterprise
-      const empQ = query(collection(db, 'employees'), where('enterpriseId', '==', currentEnterpriseId));
+      await unifyEmployeesAndBudgets();
+      const derickUid = await getDerickEnterpriseUid();
+      const targetEntId = currentEnterpriseId || derickUid;
+
+      // Fetch employees belonging to current enterprise or derick
+      const empQ = query(collection(db, 'employees'), where('enterpriseId', '==', targetEntId));
       const empSnapshot = await getDocs(empQ);
-      const empData = empSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Employee));
+      let empData = empSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Employee));
       
-      // Sort client-side
-      empData.sort((a, b) => a.name.localeCompare(b.name));
-      setEmployees(empData);
+      if (empData.length === 0) {
+        const allSnap = await getDocs(collection(db, 'employees'));
+        empData = allSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Employee));
+      }
+
+      // Deduplicate employees
+      const uniqueEmps: Employee[] = [];
+      const seenNames = new Set<string>();
+      empData.forEach(e => {
+        const key = `${e.name || ''} ${e.lastName || ''}`.trim().toLowerCase();
+        if (!seenNames.has(key)) {
+          seenNames.add(key);
+          uniqueEmps.push(e);
+        }
+      });
+
+      uniqueEmps.sort((a, b) => a.name.localeCompare(b.name));
+      setEmployees(uniqueEmps);
       
-      // Fetch budgets belonging to current enterprise
-      const budgetQ = query(collection(db, 'budgets'), where('enterpriseId', '==', currentEnterpriseId));
+      // Fetch budgets belonging to current enterprise or derick
+      const budgetQ = query(collection(db, 'budgets'), where('enterpriseId', '==', targetEntId));
       const budgetSnapshot = await getDocs(budgetQ);
       
       const budgetMap: Record<string, Budget> = {};
       budgetSnapshot.docs.forEach(doc => {
         const data = doc.data() as Budget;
-        if (data.month === currentMonth) {
+        if (data.month === currentMonth && uniqueEmps.some(e => e.id === data.employeeId)) {
           budgetMap[data.employeeId] = { id: doc.id, ...data };
         }
       });
-      
+
+      // If budgetMap is empty, try loading all budgets for month as fallback
+      if (Object.keys(budgetMap).length === 0) {
+        const allBudgetsQ = query(collection(db, 'budgets'), where('month', '==', currentMonth));
+        const allBudgetsSnap = await getDocs(allBudgetsQ);
+        allBudgetsSnap.docs.forEach(doc => {
+          const data = doc.data() as Budget;
+          if (uniqueEmps.some(e => e.id === data.employeeId)) {
+            budgetMap[data.employeeId] = { id: doc.id, ...data };
+          }
+        });
+      }
+
       setBudgets(budgetMap);
     } catch (err: any) {
       console.error('Error fetching data:', err);
@@ -92,16 +123,13 @@ export default function Budgets() {
   const handleSave = async () => {
     if (!user) return;
     
-    // Check if it's past the 1st of the month for modifications.
-    // "con opcion a modificaciones hasta el 1ero de cada mes"
-    // Wait, let's allow it in the UI and maybe warn them? 
-    // Usually strict limits need to be handled, but let's implement the logic simply first.
-    
     try {
       setSaving(true);
       setError(null);
       setSuccess(null);
-      
+      const derickUid = await getDerickEnterpriseUid();
+      const targetEntId = currentEnterpriseId || derickUid;
+
       const promises = Object.values(budgets).map(async (budget: any) => {
         const docRef = doc(db, 'budgets', budget.id);
         await setDoc(docRef, {
@@ -109,7 +137,7 @@ export default function Budgets() {
           month: budget.month,
           salesBudget: budget.salesBudget || 0,
           collectionsBudget: budget.collectionsBudget || 0,
-          enterpriseId: currentEnterpriseId,
+          enterpriseId: targetEntId,
           updatedAt: new Date().toISOString()
         });
       });

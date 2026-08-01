@@ -7,6 +7,7 @@ import { useNotification } from '../contexts/NotificationContext';
 import { logAudit, AuditAction } from '../lib/audit';
 import { format, startOfMonth, addMonths, subMonths, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { unifyEmployeesAndBudgets, getDerickEnterpriseUid } from '../lib/enterprise';
 
 interface CollectionData {
   id: string;
@@ -75,15 +76,40 @@ export default function Collections() {
     if (!user) return;
     try {
       setLoading(true);
-      
-      const qEmp = query(collection(db, 'employees'), where('enterpriseId', '==', currentEnterpriseId));
-      const snapEmp = await getDocs(qEmp);
-      setEmployees(snapEmp.docs.map(doc => ({ id: doc.id, ...doc.data() } as Employee)));
+      await unifyEmployeesAndBudgets();
+      const derickUid = await getDerickEnterpriseUid();
+      const targetEntId = currentEnterpriseId || derickUid;
 
-      const qColl = query(collection(db, 'collections'), where('enterpriseId', '==', currentEnterpriseId));
+      const qEmp = query(collection(db, 'employees'), where('enterpriseId', '==', targetEntId));
+      const snapEmp = await getDocs(qEmp);
+      let empData = snapEmp.docs.map(doc => ({ id: doc.id, ...doc.data() } as Employee));
+
+      if (empData.length === 0) {
+        const allEmpSnap = await getDocs(collection(db, 'employees'));
+        empData = allEmpSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Employee));
+      }
+
+      // Deduplicate employees
+      const uniqueEmps: Employee[] = [];
+      const seenNames = new Set<string>();
+      empData.forEach(e => {
+        const key = `${e.name || ''} ${e.lastName || ''}`.trim().toLowerCase();
+        if (!seenNames.has(key)) {
+          seenNames.add(key);
+          uniqueEmps.push(e);
+        }
+      });
+      setEmployees(uniqueEmps);
+
+      const qColl = query(collection(db, 'collections'), where('enterpriseId', '==', targetEntId));
       const snapColl = await getDocs(qColl);
       
       let allCollections = snapColl.docs.map(doc => ({ id: doc.id, ...doc.data() } as CollectionData));
+
+      if (allCollections.length === 0) {
+        const allCollSnap = await getDocs(collection(db, 'collections'));
+        allCollections = allCollSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as CollectionData));
+      }
 
       // Filter by month (using initialDate)
       allCollections = allCollections.filter(c => c.initialDate && c.initialDate.startsWith(currentMonth));
@@ -120,7 +146,7 @@ export default function Collections() {
     } else {
       setEditingCollection(null);
       setFormData({
-        employeeId: '',
+        employeeId: employees[0]?.id || '',
         initialDate: format(new Date(), 'yyyy-MM-dd'),
         finalDate: format(new Date(), 'yyyy-MM-dd'),
         noReceipt: false,
@@ -146,6 +172,9 @@ export default function Collections() {
     
     try {
       setIsSubmitting(true);
+      const derickUid = await getDerickEnterpriseUid();
+      const targetEntId = currentEnterpriseId || derickUid;
+
       const dataToSave = {
         employeeId: formData.employeeId,
         initialDate: formData.initialDate,
@@ -156,7 +185,8 @@ export default function Collections() {
         totalCollected: parseFloat(formData.totalCollected) || 0,
         depositsTransfers: parseFloat(formData.depositsTransfers) || 0,
         cashFinal,
-        clientName: formData.noReceipt ? formData.clientName : null
+        clientName: formData.noReceipt ? formData.clientName : null,
+        enterpriseId: targetEntId
       };
 
       if (editingCollection) {
@@ -165,7 +195,6 @@ export default function Collections() {
       } else {
         const newDoc = await addDoc(collection(db, 'collections'), {
           ...dataToSave,
-          enterpriseId: currentEnterpriseId,
           createdAt: Timestamp.now()
         });
         await logAudit(AuditAction.COLLECTION_CREATE, `Cobranza registrada - $ ${dataToSave.totalCollected}`, newDoc.id);

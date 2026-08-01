@@ -7,6 +7,7 @@ import { useNotification } from '../contexts/NotificationContext';
 import { logAudit, AuditAction } from '../lib/audit';
 import { format, startOfMonth, addMonths, subMonths } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { unifyEmployeesAndBudgets, getDerickEnterpriseUid } from '../lib/enterprise';
 
 export type EmployeeRole = 'vendedor' | 'cobrador' | 'ambos' | 'supervisor_ventas' | 'supervisor_cobranza' | 'supervisor_general';
 
@@ -68,16 +69,37 @@ export default function Employees() {
     if (!user) return;
     try {
       setLoading(true);
-      const q = query(collection(db, 'employees'), where('enterpriseId', '==', currentEnterpriseId));
+      await unifyEmployeesAndBudgets();
+      const derickUid = await getDerickEnterpriseUid();
+      const targetEntId = currentEnterpriseId || derickUid;
+
+      const q = query(collection(db, 'employees'), where('enterpriseId', '==', targetEntId));
       const snapshot = await getDocs(q);
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Employee));
+      let data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Employee));
       
-      data.sort((a, b) => {
+      if (data.length === 0) {
+        const allSnap = await getDocs(collection(db, 'employees'));
+        data = allSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Employee));
+      }
+
+      // Deduplicate by normalized name
+      const uniqueEmps: Employee[] = [];
+      const seenNames = new Set<string>();
+
+      data.forEach(emp => {
+        const key = `${emp.name || ''} ${emp.lastName || ''}`.trim().toLowerCase();
+        if (!seenNames.has(key)) {
+          seenNames.add(key);
+          uniqueEmps.push(emp);
+        }
+      });
+
+      uniqueEmps.sort((a, b) => {
         const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt || 0).getTime();
         const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : new Date(b.createdAt || 0).getTime();
         return timeB - timeA;
       });
-      setEmployees(data);
+      setEmployees(uniqueEmps);
     } catch (err: any) {
       console.error('Error fetching employees:', err);
       setError('Error al cargar empleados');
@@ -132,23 +154,45 @@ export default function Employees() {
     
     try {
       setIsSubmitting(true);
-      if (editingEmployee) {
+      const derickUid = await getDerickEnterpriseUid();
+      const targetEntId = currentEnterpriseId || derickUid;
+
+      const normalizedNewName = `${formData.name} ${formData.lastName}`.trim().toLowerCase();
+      const existingDup = employees.find(emp => 
+        (!editingEmployee || emp.id !== editingEmployee.id) &&
+        `${emp.name} ${emp.lastName}`.trim().toLowerCase() === normalizedNewName
+      );
+
+      if (existingDup) {
+        const docRef = doc(db, 'employees', existingDup.id);
+        await updateDoc(docRef, {
+          name: formData.name,
+          lastName: formData.lastName,
+          role: formData.role,
+          enterpriseId: targetEntId
+        });
+        await logAudit(AuditAction.EMPLOYEE_UPDATE, `Empleado actualizado (sin duplicar): ${formData.name} ${formData.lastName} (${formData.role})`, existingDup.id);
+        showToast('Empleado actualizado exitosamente', 'success');
+      } else if (editingEmployee) {
         const docRef = doc(db, 'employees', editingEmployee.id);
         await updateDoc(docRef, {
           name: formData.name,
           lastName: formData.lastName,
-          role: formData.role
+          role: formData.role,
+          enterpriseId: targetEntId
         });
         await logAudit(AuditAction.EMPLOYEE_UPDATE, `Empleado modificado: ${formData.name} ${formData.lastName} (${formData.role})`, editingEmployee.id);
+        showToast('Empleado modificado exitosamente', 'success');
       } else {
         const newDoc = await addDoc(collection(db, 'employees'), {
           name: formData.name,
           lastName: formData.lastName,
           role: formData.role,
-          enterpriseId: currentEnterpriseId,
+          enterpriseId: targetEntId,
           createdAt: Timestamp.now()
         });
         await logAudit(AuditAction.EMPLOYEE_UPDATE, `Empleado creado: ${formData.name} ${formData.lastName} (${formData.role})`, newDoc.id);
+        showToast('Empleado registrado exitosamente', 'success');
       }
       setIsModalOpen(false);
       fetchEmployees();

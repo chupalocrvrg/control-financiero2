@@ -7,6 +7,7 @@ import { useNotification } from '../contexts/NotificationContext';
 import { logAudit, AuditAction } from '../lib/audit';
 import { format } from 'date-fns';
 import { isSuperAdminEmail } from '../lib/utils';
+import { unifyEmployeesAndBudgets, getDerickEnterpriseUid } from '../lib/enterprise';
 
 interface Employee {
   id: string;
@@ -118,6 +119,8 @@ export default function Sales() {
   const fetchData = async () => {
     try {
       setLoading(true);
+      await unifyEmployeesAndBudgets();
+      const derickUid = await getDerickEnterpriseUid();
       
       let salesList: Sale[] = [];
       let empList: Employee[] = [];
@@ -137,7 +140,7 @@ export default function Sales() {
           empList = empList.filter((e: any) => e.enterpriseId === selectedEnterpriseId);
         }
       } else {
-        const tenantId = profile?.role === 'enterprise' ? user?.uid : (profile?.enterpriseId || user?.uid || '');
+        const tenantId = profile?.role === 'enterprise' ? user?.uid : (profile?.enterpriseId || user?.uid || derickUid);
         const salesQ = query(collection(db, 'sales'), where('enterpriseId', '==', tenantId));
         const empQ = query(collection(db, 'employees'), where('enterpriseId', '==', tenantId));
         
@@ -148,7 +151,29 @@ export default function Sales() {
         
         salesList = salesRes.docs.map(doc => ({ id: doc.id, ...doc.data() } as Sale));
         empList = empRes.docs.map(doc => ({ id: doc.id, ...doc.data() } as Employee));
+
+        // If no sales found for current tenantId, load unassigned sales as well
+        if (salesList.length === 0) {
+          const allSalesSnap = await getDocs(collection(db, 'sales'));
+          salesList = allSalesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Sale));
+        }
+
+        if (empList.length === 0) {
+          const allEmpSnap = await getDocs(collection(db, 'employees'));
+          empList = allEmpSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Employee));
+        }
       }
+
+      // Deduplicate employees by full name
+      const uniqueEmps: Employee[] = [];
+      const seenNames = new Set<string>();
+      empList.forEach(e => {
+        const key = `${e.name || ''} ${e.lastName || ''}`.trim().toLowerCase();
+        if (!seenNames.has(key)) {
+          seenNames.add(key);
+          uniqueEmps.push(e);
+        }
+      });
 
       salesList.sort((a, b) => {
         if (b.date !== a.date) return b.date.localeCompare(a.date);
@@ -158,8 +183,8 @@ export default function Sales() {
       });
       setSales(salesList);
 
-      empList.sort((a, b) => a.name.localeCompare(b.name));
-      setEmployees(empList);
+      uniqueEmps.sort((a, b) => a.name.localeCompare(b.name));
+      setEmployees(uniqueEmps);
     } catch (err: any) {
       console.error('Error fetching data:', err);
       setError('Error al cargar datos');
@@ -195,7 +220,7 @@ export default function Sales() {
       setFormData({
         date: format(new Date(), 'yyyy-MM-dd'),
         type: 'contado',
-        employeeId: validEmps[0]?.id || '',
+        employeeId: validEmps[0]?.id || employees[0]?.id || '',
         isMoto: false,
         motoType: 'combustion',
         totalValue: '',
@@ -212,9 +237,10 @@ export default function Sales() {
     
     try {
       setIsSubmitting(true);
+      const derickUid = await getDerickEnterpriseUid();
       const targetEnterpriseId = isSuperAdmin
-        ? (formEnterpriseId || user.uid)
-        : (profile?.role === 'enterprise' ? user.uid : (profile?.enterpriseId || user.uid || ''));
+        ? (formEnterpriseId || selectedEnterpriseId || derickUid || user.uid)
+        : (profile?.role === 'enterprise' ? user.uid : (profile?.enterpriseId || derickUid || user.uid || ''));
 
       const saleData = {
         date: formData.date,
@@ -231,12 +257,14 @@ export default function Sales() {
       if (editingSale) {
         await updateDoc(doc(db, 'sales', editingSale.id), saleData);
         await logAudit(AuditAction.SALE_UPDATE, `Venta modificada para cliente: ${saleData.clientName || 'Sin Nombre'}, Artículo: ${saleData.article}, Valor: $${saleData.totalValue}`, editingSale.id);
+        showToast('Venta modificada exitosamente', 'success');
       } else {
         const newDoc = await addDoc(collection(db, 'sales'), {
           ...saleData,
           createdAt: Timestamp.now()
         });
         await logAudit(AuditAction.SALE_UPDATE, `Venta registrada para cliente: ${saleData.clientName || 'Sin Nombre'}, Artículo: ${saleData.article}, Valor: $${saleData.totalValue}`, newDoc.id);
+        showToast('Venta registrada exitosamente', 'success');
       }
       setIsModalOpen(false);
       fetchData();

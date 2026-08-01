@@ -11,6 +11,14 @@ export interface ChangelogRelease {
 
 export const staticChangelog: ChangelogRelease[] = [
   {
+    version: "4.19.0",
+    date: new Date().toISOString(),
+    changes: [
+      "Unificación de Personal y Presupuestos: Se consolidaron registros de empleados duplicados bajo Almacenes Derick (creditosderick15@gmail.com).",
+      "Vincular Ventas y Cobranzas: Se asociaron todas las ventas, presupuestos y cobranzas guardadas a la empresa Almacenes Derick sin duplicar registros."
+    ]
+  },
+  {
     version: "4.18.8",
     date: new Date().toISOString(),
     changes: [

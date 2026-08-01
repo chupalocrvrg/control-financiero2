@@ -11,6 +11,14 @@ export interface ChangelogRelease {
 
 export const staticChangelog: ChangelogRelease[] = [
   {
+    version: "4.19.2",
+    date: new Date().toISOString(),
+    changes: [
+      "Migración Completa de Usuario: Se actualizó el motor de migración administrativa para buscar y transferir todas las colecciones (cheques, facturas, beneficiarios, ventas, cobranzas, empleados, presupuestos e inventario) identificando coincidencias por usuario o empresa y ejecutando cambios en lotes de 400 escrituras.",
+      "Importación JSON Tolerante: Se mejoró la importación de respaldos JSON en Configuración para desempaquetar estructuras anidadas, normalizar nombres de colecciones y mostrar mensajes descriptivos de error."
+    ]
+  },
+  {
     version: "4.19.1",
     date: new Date().toISOString(),
     changes: [

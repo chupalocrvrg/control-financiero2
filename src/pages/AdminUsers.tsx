@@ -562,50 +562,112 @@ export default function AdminUsers({ mode = "USERS" }: { mode?: "USERS" | "HISTO
         return;
       }
 
-      const checksPath = 'checks';
-      const checksQ = query(collection(db, checksPath), where('userId', '==', selectedUser.id));
-      const checksSnaps = await getDocs(checksQ);
-      
-      const invoicesPath = 'invoices';
-      const invoicesQ = query(collection(db, invoicesPath), where('userId', '==', selectedUser.id));
-      const invSnaps = await getDocs(invoicesQ);
+      const targetUser = users.find(u => u.id === migrateTargetUserId);
+      const targetUserId = targetUser ? targetUser.id : migrateTargetUserId;
+      const targetEnterpriseId = targetUser
+        ? (targetUser.role === 'enterprise' ? targetUser.id : (targetUser.enterpriseId || targetUser.id))
+        : migrateTargetUserId;
 
-      const beneficiariesPath = 'beneficiaries';
-      const beneficiariesQ = query(collection(db, beneficiariesPath), where('userId', '==', selectedUser.id));
-      const benSnaps = await getDocs(beneficiariesQ);
-      
+      const sourceIds = new Set<string>();
+      if (selectedUser.id) sourceIds.add(selectedUser.id);
+      if (selectedUser.email) sourceIds.add(selectedUser.email);
+      if (selectedUser.enterpriseId) sourceIds.add(selectedUser.enterpriseId);
+
+      const isSourceDoc = (data: any) => {
+        if (!data) return false;
+        return (
+          (data.userId && sourceIds.has(data.userId)) ||
+          (data.enterpriseId && sourceIds.has(data.enterpriseId)) ||
+          (data.userEmail && sourceIds.has(data.userEmail)) ||
+          (data.email && sourceIds.has(data.email))
+        );
+      };
+
+      const collectionsToMigrate = [
+        { label: 'cheques', path: 'checks' },
+        { label: 'facturas', path: 'invoices' },
+        { label: 'beneficiarios', path: 'beneficiaries' },
+        { label: 'ventas', path: 'sales' },
+        { label: 'cobranzas', path: 'collections' },
+        { label: 'empleados', path: 'employees' },
+        { label: 'presupuestos', path: 'budgets' },
+        { label: 'artículos de inventario', path: 'articles' },
+        { label: 'bodegas', path: 'warehouses' },
+        { label: 'inventario en bodega', path: 'warehouse_inventory' },
+        { label: 'préstamos/devoluciones', path: 'loans_returns' },
+        { label: 'transferencias', path: 'transfers' },
+        { label: 'ventas de inventario', path: 'inventory_sales' },
+      ];
+
+      const operations: { docRef: any; updates: any }[] = [];
+      const statsSummary: Record<string, number> = {};
+
+      for (const col of collectionsToMigrate) {
+        const snap = await getDocs(collection(db, col.path));
+        let count = 0;
+
+        for (const d of snap.docs) {
+          const data = d.data();
+          if (isSourceDoc(data)) {
+            const updates: any = {};
+            if (data.hasOwnProperty('userId') || data.userId) updates.userId = targetUserId;
+            if (data.hasOwnProperty('enterpriseId') || data.enterpriseId) updates.enterpriseId = targetEnterpriseId;
+            if (!updates.userId && !updates.enterpriseId) {
+              updates.userId = targetUserId;
+              updates.enterpriseId = targetEnterpriseId;
+            }
+            if (data.userEmail && targetUser?.email) updates.userEmail = targetUser.email;
+
+            operations.push({
+              docRef: doc(db, col.path, d.id),
+              updates
+            });
+            count++;
+          }
+        }
+        statsSummary[col.label] = count;
+      }
+
+      if (operations.length === 0) {
+        showAlert("Sin Registros", "No se encontraron cheques, facturas, beneficiarios ni otros registros vinculados al usuario de origen.", "warning");
+        setLoading(false);
+        return;
+      }
+
       const { writeBatch } = await import('firebase/firestore');
-      const batch = writeBatch(db);
-      
-      // Firestore batch max operations is 500, but we assume it might not exceed for now.
-      // If needed, we'd chunk it. For smaller apps it's ok.
-      checksSnaps.docs.forEach(d => {
-        batch.update(doc(db, checksPath, d.id), { userId: migrateTargetUserId });
-      });
-      
-      invSnaps.docs.forEach(d => {
-        batch.update(doc(db, invoicesPath, d.id), { userId: migrateTargetUserId });
-      });
+      const BATCH_SIZE = 400;
+      const totalBatches = Math.ceil(operations.length / BATCH_SIZE);
 
-      benSnaps.docs.forEach(d => {
-        batch.update(doc(db, beneficiariesPath, d.id), { userId: migrateTargetUserId });
-      });
-      
-      await batch.commit();
-      
+      for (let i = 0; i < totalBatches; i++) {
+        const batch = writeBatch(db);
+        const chunk = operations.slice(i * BATCH_SIZE, (i + 1) * BATCH_SIZE);
+        for (const op of chunk) {
+          batch.update(op.docRef, op.updates);
+        }
+        await batch.commit();
+      }
+
       if (viewingUserInstance?.id === selectedUser.id) {
         setUserChecks([]);
       }
-      
-      logAudit(AuditAction.SETTINGS_UPDATE, `Migrados ${checksSnaps.size} cheques, ${invSnaps.size} facturas y ${benSnaps.size} beneficiarios desde ${selectedUser.id} hacia ${migrateTargetUserId}`);
-      
-      showAlert("Migración Exitosa", `Se han migrado ${checksSnaps.size} cheques, ${invSnaps.size} facturas y ${benSnaps.size} beneficiarios correctamente.`, "success");
+
+      const summaryParts = Object.entries(statsSummary)
+        .filter(([_, count]) => count > 0)
+        .map(([label, count]) => `${count} ${label}`);
+
+      const summaryText = summaryParts.length > 0 
+        ? summaryParts.join(', ')
+        : `${operations.length} registros`;
+
+      logAudit(AuditAction.SETTINGS_UPDATE, `Migrados desde ${selectedUser.id} hacia ${targetUserId}: ${summaryText}`);
+
+      showAlert("Migración Exitosa", `Se han migrado exitosamente: ${summaryText} al usuario de destino.`, "success");
       setShowMigrateModal(false);
       setMigratePinValue('');
       setMigrateTargetUserId('');
-    } catch (e) {
+    } catch (e: any) {
       console.error("Error crítico migrando data del usuario:", e);
-      showToast("Error al migrar la base de datos", "error");
+      showToast("Error al migrar la base de datos: " + (e?.message || "Error desconocido"), "error");
       handleFirestoreError(e, OperationType.WRITE, `admin/migrate/${selectedUser.id}`);
     } finally {
       setLoading(false);

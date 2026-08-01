@@ -496,6 +496,9 @@ export default function Settings() {
       let importedData;
       if (file.name.endsWith('.json')) {
         importedData = JSON.parse(fileText);
+        if (importedData.dbData) importedData = importedData.dbData;
+        else if (importedData.data) importedData = importedData.data;
+        else if (importedData.backup) importedData = importedData.backup;
       } else {
          showToast("La importación desde Excel aún no está completamente soportada, use JSON", "error");
          setLoading(false);
@@ -507,7 +510,8 @@ export default function Settings() {
       const cleanData = (obj: any): any => {
         if (obj === null || obj === undefined) return null;
         if (typeof obj !== 'object') return obj;
-        if (Array.isArray(obj)) return obj.map(cleanData);
+        if (obj instanceof Date) return obj.toISOString();
+        if (Array.isArray(obj)) return obj.map(cleanData).filter(item => item !== undefined);
         const result: any = {};
         for (const [k, v] of Object.entries(obj)) {
           if (v !== undefined) {
@@ -517,12 +521,13 @@ export default function Settings() {
         return result;
       };
 
-      const collectionsMap: any = {
+      const collectionsMap: Record<string, string> = {
         employees: 'employees',
         checks: 'checks',
         sales: 'sales',
         collections: 'collections',
         inventory: 'articles',
+        articles: 'articles',
         invoices: 'invoices',
         beneficiaries: 'beneficiaries',
         budgets: 'budgets',
@@ -534,22 +539,22 @@ export default function Settings() {
       };
 
       const operations: { docRef: any; data: any }[] = [];
+      const processedDocKeys = new Set<string>();
       
       for (const [key, collectionName] of Object.entries(collectionsMap)) {
-        const listName = key === 'inventory' ? 'inventory' : key;
-        if (importedData[listName] && Array.isArray(importedData[listName])) {
-           for (const item of importedData[listName]) {
+        if (importedData[key] && Array.isArray(importedData[key])) {
+           for (const item of importedData[key]) {
              const docId = item.id || crypto.randomUUID();
-             const docRef = doc(db, collectionName as string, docId);
+             const docKey = `${collectionName}_${docId}`;
+             if (processedDocKeys.has(docKey)) continue;
+             processedDocKeys.add(docKey);
+
+             const docRef = doc(db, collectionName, docId);
              const dataToSave = cleanData({ ...item });
              delete dataToSave.id;
              
-             if (dataToSave.hasOwnProperty('enterpriseId') || collectionName === 'employees' || collectionName === 'sales' || collectionName === 'collections' || collectionName === 'checks' || collectionName === 'budgets') {
-               dataToSave.enterpriseId = activeUid;
-             }
-             if (dataToSave.hasOwnProperty('userId') || collectionName === 'articles' || collectionName === 'warehouses' || collectionName === 'warehouse_inventory' || collectionName === 'loans_returns' || collectionName === 'transfers' || collectionName === 'inventory_sales' || collectionName === 'invoices' || collectionName === 'beneficiaries') {
-               dataToSave.userId = activeUid;
-             }
+             dataToSave.enterpriseId = activeUid;
+             dataToSave.userId = activeUid;
              
              operations.push({ docRef, data: dataToSave });
            }
@@ -578,9 +583,9 @@ export default function Settings() {
       
       showToast(`Base de datos restaurada con éxito (${operations.length} registros en modo ${mode === 'merge' ? 'Fusión' : 'Sobreescritura'})`, "success");
       await logAudit(AuditAction.SETTINGS_UPDATE, `Importación de base de datos completa (${operations.length} registros en modo ${mode})`);
-    } catch (err) {
-      console.error(err);
-      showToast("Error importando", "error");
+    } catch (err: any) {
+      console.error("Error importando:", err);
+      showToast("Error importando: " + (err?.message || "Error desconocido al procesar el archivo JSON"), "error");
     } finally {
       setLoading(false);
       setBackupPin('');

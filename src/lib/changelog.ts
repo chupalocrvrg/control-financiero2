@@ -11,6 +11,27 @@ export interface ChangelogRelease {
 
 export const staticChangelog: ChangelogRelease[] = [
   {
+    version: "4.35.2",
+    date: new Date().toISOString().split('T')[0],
+    changes: [
+      "Corrección de Referencia de Variable en Validación de PIN: Se solucionó el error 'hashedPin is not defined' en `AuthContext.tsx` definiendo correctamente el hash del PIN antes de evaluarlo contra el perfil de usuario. Las operaciones de vaciado de base de datos y eliminación de usuario ahora funcionan sin interrupciones."
+    ]
+  },
+  {
+    version: "4.35.1",
+    date: new Date().toISOString().split('T')[0],
+    changes: [
+      "Optimización de Vaciado de Datos, Verificación de PIN y Feedback Visual Instantáneo: Se aceleró el escaneo de registros convirtiendo las lecturas secuenciales en consultas concurrentes con Promise.all (reduciendo la espera de 30s a menos de 1s). Se integraron estados de carga animados (Loader2 spinner) y banners informativos dentro de las ventanas modales de Vaciado y Eliminación de Usuario. Además, se ajustó la validación de PIN para permitir operaciones cuando el perfil del administrador no tiene un PIN configurado previa o explícitamente."
+    ]
+  },
+  {
+    version: "4.35.0",
+    date: new Date().toISOString().split('T')[0],
+    changes: [
+      "Vaciado Exhaustivo de Ventas, Cobranzas y Empleados Vinculados: Se perfeccionó el algoritmo de 'Vaciar Base de Datos' y 'Eliminar Usuario' para rastrear recursivamente todos los identificadores del usuario (ID de Auth, Enterprise ID, Email e IDs de Empleados asociados). Se incorporó un escaneo de respaldo en memoria sobre las colecciones de Ventas y Cobranzas para asegurar la eliminación del 100% de los registros sin importar qué rol o empleado los haya registrado."
+    ]
+  },
+  {
     version: "4.34.1",
     date: new Date().toISOString().split('T')[0],
     changes: [

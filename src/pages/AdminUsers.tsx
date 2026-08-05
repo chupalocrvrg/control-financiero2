@@ -7,7 +7,7 @@ import { collection, getDocs, getDoc, doc, updateDoc, query, where, orderBy, del
 import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
 import { formatCurrency, cn, hashPin } from '../lib/utils';
 import { format, parseISO, addDays, addMonths, addYears } from 'date-fns';
-import { Users, User, Shield, Calendar, Eye, Ban, CheckCircle, Search, Edit3, X, Download, ShieldCheck, Mail, Clock, Lock, Trash2, Plus, ArrowRight, RotateCcw, AlertTriangle, Sparkles, Building2, Briefcase, ChevronRight, Check, UserPlus } from 'lucide-react';
+import { Users, User, Shield, Calendar, Eye, Ban, CheckCircle, Search, Edit3, X, Download, ShieldCheck, Mail, Clock, Lock, Trash2, Plus, ArrowRight, RotateCcw, AlertTriangle, Sparkles, Building2, Briefcase, ChevronRight, Check, UserPlus, Loader2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { getDynamicVersions, ChangelogRelease } from '../lib/changelog';
 import { logAudit, AuditAction } from '../lib/audit';
@@ -43,6 +43,8 @@ export default function AdminUsers({ mode = "USERS" }: { mode?: "USERS" | "HISTO
   
   const [showDeleteUserConfirmModal, setShowDeleteUserConfirmModal] = useState(false);
   const [deleteUserPinValue, setDeleteUserPinValue] = useState('');
+  const [isVacuuming, setIsVacuuming] = useState(false);
+  const [isDeletingUser, setIsDeletingUser] = useState(false);
 
   const [viewingUserInstance, setViewingUserInstance] = useState<UserData | null>(null);
   const [activeTab, setActiveTab] = useState<'USERS' | 'HISTORY' | 'AUDIT' | 'TRASH' | 'ENTITIES'>(mode);
@@ -767,70 +769,125 @@ export default function AdminUsers({ mode = "USERS" }: { mode?: "USERS" | "HISTO
     }
   };
 
+  const getDocsToDeleteForUser = async (userToClear: any) => {
+    const targetIds = new Set<string>();
+    if (userToClear.id) targetIds.add(userToClear.id);
+    if (userToClear.uid) targetIds.add(userToClear.uid);
+    if (userToClear.enterpriseId) targetIds.add(userToClear.enterpriseId);
+    if (userToClear.email) targetIds.add(userToClear.email);
+
+    // Fetch all employees associated with this enterprise/user in parallel
+    try {
+      const empQueries = [
+        query(collection(db, 'employees'), where('enterpriseId', '==', userToClear.id)),
+        query(collection(db, 'employees'), where('userId', '==', userToClear.id)),
+      ];
+      if (userToClear.enterpriseId) {
+        empQueries.push(query(collection(db, 'employees'), where('enterpriseId', '==', userToClear.enterpriseId)));
+      }
+      const empSnaps = await Promise.all(empQueries.map(q => getDocs(q)));
+      empSnaps.forEach(snap => {
+        snap.docs.forEach(d => {
+          targetIds.add(d.id);
+          const data = d.data();
+          if (data.userId) targetIds.add(data.userId);
+          if (data.id) targetIds.add(data.id);
+        });
+      });
+    } catch (e) {
+      console.warn("Error buscando empleados del usuario:", e);
+    }
+
+    const idsArr = Array.from(targetIds);
+    console.log("IDs identificadores recopilados para el vaciado:", idsArr);
+
+    const collectionsToCheck = [
+      'checks',
+      'invoices',
+      'beneficiaries',
+      'sales',
+      'collections',
+      'employees',
+      'budgets',
+      'warehouses',
+      'articles',
+      'warehouse_inventory',
+      'loans_returns',
+      'inventory_sales',
+      'transfers',
+      'buro_logs'
+    ];
+
+    const fieldsToCheck = ['userId', 'enterpriseId', 'employeeId', 'vendedorId', 'createdBy'];
+    const docsToDeleteMap = new Map<string, { colName: string; docId: string }>();
+
+    // Parallelize all queries across collections, fields, and target IDs
+    const queryPromises: Promise<any>[] = [];
+    for (const colName of collectionsToCheck) {
+      for (const field of fieldsToCheck) {
+        for (const tId of idsArr) {
+          const q = query(collection(db, colName), where(field, '==', tId));
+          queryPromises.push(
+            getDocs(q).then(snap => {
+              snap.docs.forEach(d => {
+                docsToDeleteMap.set(`${colName}/${d.id}`, { colName, docId: d.id });
+              });
+            }).catch(() => {})
+          );
+        }
+      }
+    }
+    await Promise.all(queryPromises);
+
+    // Fallback scan for sales and collections to guarantee 100% deletion
+    await Promise.all(['sales', 'collections'].map(async (colName) => {
+      try {
+        const allSnap = await getDocs(collection(db, colName));
+        allSnap.docs.forEach(d => {
+          const data = d.data();
+          const matches = idsArr.some(id => 
+            data.enterpriseId === id ||
+            data.userId === id ||
+            data.employeeId === id ||
+            data.vendedorId === id ||
+            data.createdBy === id
+          );
+          if (matches) {
+            docsToDeleteMap.set(`${colName}/${d.id}`, { colName, docId: d.id });
+          }
+        });
+      } catch (err) {
+        console.warn(`Fallback scan error en ${colName}:`, err);
+      }
+    }));
+
+    return docsToDeleteMap;
+  };
+
   const handleVaciarBaseDatos = async () => {
     if (!selectedUser) return;
     
+    setIsVacuuming(true);
     setLoading(true);
     try {
       const isValid = await verifyPin(adminPinValue);
       if (!isValid) {
         showAlert("PIN Incorrecto", "El PIN de administrador ingresado es incorrecto o no está configurado.", "error");
+        setIsVacuuming(false);
         setLoading(false);
         return;
       }
 
       console.log(`Iniciando vaciado total de datos para: ${selectedUser.name} (${selectedUser.id})`);
       
-      const userId = selectedUser.id;
-
-      // Define all collection/field patterns to purge
-      const collectionsToClear = [
-        { name: 'checks', field: 'userId' },
-        { name: 'checks', field: 'enterpriseId' },
-        { name: 'invoices', field: 'userId' },
-        { name: 'invoices', field: 'enterpriseId' },
-        { name: 'beneficiaries', field: 'userId' },
-        { name: 'sales', field: 'userId' },
-        { name: 'sales', field: 'enterpriseId' },
-        { name: 'collections', field: 'userId' },
-        { name: 'collections', field: 'enterpriseId' },
-        { name: 'employees', field: 'enterpriseId' },
-        { name: 'employees', field: 'userId' },
-        { name: 'budgets', field: 'enterpriseId' },
-        { name: 'budgets', field: 'userId' },
-        { name: 'warehouses', field: 'userId' },
-        { name: 'articles', field: 'userId' },
-        { name: 'warehouse_inventory', field: 'userId' },
-        { name: 'loans_returns', field: 'userId' },
-        { name: 'inventory_sales', field: 'userId' },
-        { name: 'transfers', field: 'userId' },
-        { name: 'buro_logs', field: 'userId' },
-        { name: 'buro_logs', field: 'enterpriseId' },
-      ];
-
-      // Collect unique document references
-      const docsToDeleteMap = new Map<string, { colName: string; docId: string }>();
-
-      for (const item of collectionsToClear) {
-        try {
-          const q = query(collection(db, item.name), where(item.field, '==', userId));
-          const snap = await getDocs(q);
-          snap.docs.forEach(d => {
-            const key = `${item.name}/${d.id}`;
-            docsToDeleteMap.set(key, { colName: item.name, docId: d.id });
-          });
-        } catch (err) {
-          console.warn(`Error consultando colección ${item.name} para ${item.field}:`, err);
-        }
-      }
-
+      const docsToDeleteMap = await getDocsToDeleteForUser(selectedUser);
       const totalDocs = docsToDeleteMap.size;
       console.log(`Total de documentos a vaciar para ${selectedUser.name}: ${totalDocs}`);
 
       const { writeBatch } = await import('firebase/firestore');
       const docEntries = Array.from(docsToDeleteMap.values());
       
-      // Delete in chunked batches of 400 to prevent Firestore 500-op limit
+      // Delete in chunked batches of 400 to prevent Firestore limit
       const CHUNK_SIZE = 400;
       for (let i = 0; i < docEntries.length; i += CHUNK_SIZE) {
         const chunk = docEntries.slice(i, i + CHUNK_SIZE);
@@ -841,13 +898,13 @@ export default function AdminUsers({ mode = "USERS" }: { mode?: "USERS" | "HISTO
         await batch.commit();
       }
       
-      if (viewingUserInstance?.id === userId) {
+      if (viewingUserInstance?.id === selectedUser.id) {
         setUserChecks([]);
       }
       
-      logAudit(AuditAction.DB_VACUUM, `Vaciada base de datos completa del usuario ${selectedUser.name} (${userId}). Se eliminaron ${totalDocs} registros de todas las módulos.`);
+      logAudit(AuditAction.DB_VACUUM, `Vaciada base de datos completa del usuario ${selectedUser.name} (${selectedUser.id}). Se eliminaron ${totalDocs} registros (incluyendo Ventas, Cobranzas, Cheques, etc.).`);
       
-      showAlert("Vaciado Completado", `Se han eliminado exitosamente TODOS los registros (${totalDocs} documentos) vinculados a ${selectedUser.name} en todo el sistema.`, "success");
+      showAlert("Vaciado Completado", `Se han eliminado exitosamente TODOS los registros (${totalDocs} documentos) vinculados a ${selectedUser.name} (Ventas, Cobranzas, Cheques, etc.) en todo el sistema.`, "success");
       setShowAdminConfirmModal(false);
       setAdminPinValue('');
     } catch (e) {
@@ -855,6 +912,7 @@ export default function AdminUsers({ mode = "USERS" }: { mode?: "USERS" | "HISTO
       showAlert("Error de Vaciado", "Error al vaciar la base de datos. Consulta la consola para más detalles.", "error");
       handleFirestoreError(e, OperationType.WRITE, `admin/cleanup/${selectedUser.id}`);
     } finally {
+      setIsVacuuming(false);
       setLoading(false);
     }
   };
@@ -862,11 +920,13 @@ export default function AdminUsers({ mode = "USERS" }: { mode?: "USERS" | "HISTO
   const handleDeleteUser = async () => {
     if (!selectedUser) return;
     
+    setIsDeletingUser(true);
     setLoading(true);
     try {
       const isValid = await verifyPin(deleteUserPinValue);
       if (!isValid) {
         showAlert("PIN Incorrecto", "El PIN de administrador ingresado es incorrecto o no está configurado.", "error");
+        setIsDeletingUser(false);
         setLoading(false);
         return;
       }
@@ -874,45 +934,7 @@ export default function AdminUsers({ mode = "USERS" }: { mode?: "USERS" | "HISTO
       console.log(`Iniciando eliminación total del usuario y su data: ${selectedUser.name} (${selectedUser.id})`);
       
       const userId = selectedUser.id;
-
-      const collectionsToClear = [
-        { name: 'checks', field: 'userId' },
-        { name: 'checks', field: 'enterpriseId' },
-        { name: 'invoices', field: 'userId' },
-        { name: 'invoices', field: 'enterpriseId' },
-        { name: 'beneficiaries', field: 'userId' },
-        { name: 'sales', field: 'userId' },
-        { name: 'sales', field: 'enterpriseId' },
-        { name: 'collections', field: 'userId' },
-        { name: 'collections', field: 'enterpriseId' },
-        { name: 'employees', field: 'enterpriseId' },
-        { name: 'employees', field: 'userId' },
-        { name: 'budgets', field: 'enterpriseId' },
-        { name: 'budgets', field: 'userId' },
-        { name: 'warehouses', field: 'userId' },
-        { name: 'articles', field: 'userId' },
-        { name: 'warehouse_inventory', field: 'userId' },
-        { name: 'loans_returns', field: 'userId' },
-        { name: 'inventory_sales', field: 'userId' },
-        { name: 'transfers', field: 'userId' },
-        { name: 'buro_logs', field: 'userId' },
-        { name: 'buro_logs', field: 'enterpriseId' },
-      ];
-
-      const docsToDeleteMap = new Map<string, { colName: string; docId: string }>();
-
-      for (const item of collectionsToClear) {
-        try {
-          const q = query(collection(db, item.name), where(item.field, '==', userId));
-          const snap = await getDocs(q);
-          snap.docs.forEach(d => {
-            const key = `${item.name}/${d.id}`;
-            docsToDeleteMap.set(key, { colName: item.name, docId: d.id });
-          });
-        } catch (err) {
-          console.warn(`Error consultando colección ${item.name} para ${item.field}:`, err);
-        }
-      }
+      const docsToDeleteMap = await getDocsToDeleteForUser(selectedUser);
 
       // Add user settings and profile documents
       docsToDeleteMap.set(`settings/${userId}`, { colName: 'settings', docId: userId });
@@ -936,21 +958,21 @@ export default function AdminUsers({ mode = "USERS" }: { mode?: "USERS" | "HISTO
       
       logAudit(AuditAction.USER_DELETE, `Eliminado permanentemente usuario ${selectedUser.name} (${selectedUser.id}). Se eliminaron todos sus registros (${docEntries.length} documentos).`);
       
-      setSelectedUser(null);
-      
       if (viewingUserInstance?.id === selectedUser.id) {
         setViewingUserInstance(null);
         setUserChecks([]);
       }
-      
-      showAlert("Usuario Eliminado", `El usuario ${selectedUser.name} ha sido eliminado permanentemente del sistema con todos sus registros asociados.`, "success");
+
+      setSelectedUser(null);
       setShowDeleteUserConfirmModal(false);
       setDeleteUserPinValue('');
+      showAlert("Usuario Eliminado", `El usuario ${selectedUser.name} y todos sus registros (${docEntries.length} documentos) han sido eliminados permanentemente.`, "success");
     } catch (e) {
-      console.error("Error crítico eliminando usuario:", e);
-      showToast("Error al eliminar el usuario", "error");
-      handleFirestoreError(e, OperationType.DELETE, `admin/deleteUser/${selectedUser.id}`);
+      console.error("Error eliminando usuario:", e);
+      showAlert("Error al Eliminar", "No se pudo eliminar el usuario y sus registros.", "error");
+      handleFirestoreError(e, OperationType.WRITE, `admin/delete-user/${selectedUser.id}`);
     } finally {
+      setIsDeletingUser(false);
       setLoading(false);
     }
   };
@@ -1103,7 +1125,7 @@ export default function AdminUsers({ mode = "USERS" }: { mode?: "USERS" | "HISTO
   return (
     <div className="relative">
       {loading && (
-        <div className="fixed inset-0 bg-neutral-900/40 backdrop-blur-[2px] z-[999] flex items-center justify-center">
+        <div className="fixed inset-0 bg-neutral-900/40 backdrop-blur-[2px] z-[2000] flex items-center justify-center">
           <div className="bg-white dark:bg-neutral-900 p-8 rounded-3xl shadow-2xl flex flex-col items-center gap-4">
             <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
             <p className="text-sm font-bold text-neutral-900 dark:text-neutral-50">Procesando solicitud...</p>
@@ -2437,33 +2459,50 @@ export default function AdminUsers({ mode = "USERS" }: { mode?: "USERS" | "HISTO
                 <p className="text-[10px] text-red-500/80 uppercase mt-1">Esta acción es irreversible y eliminará cheques y facturas.</p>
               </div>
               
+              {isVacuuming && (
+                <div className="p-4 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-2xl flex items-center gap-3 text-red-700 dark:text-red-300 animate-pulse">
+                  <Loader2 className="w-6 h-6 animate-spin flex-shrink-0" />
+                  <p className="text-xs font-bold leading-snug">Vaciando registros de todas las colecciones... Por favor espera sin cerrar la página.</p>
+                </div>
+              )}
+
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-neutral-400 uppercase tracking-widest block">Confirma con TU PIN de Administrador</label>
                 <input 
                   type="password" autoComplete="new-password" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" inputMode="numeric" pattern="[0-9]*" 
                   maxLength={6}
+                  disabled={isVacuuming}
                   value={adminPinValue}
                   onChange={(e) => {
                     const val = e.target.value.replace(/\D/g, '');
                     setAdminPinValue(val);
                   }}
-                  className="w-full bg-neutral-950 border-none rounded-2xl p-4 text-2xl font-mono text-center tracking-[0.5em] focus:ring-2 focus:ring-red-500 outline-none transition-all text-white shadow-inner"
+                  className="w-full bg-neutral-950 border-none rounded-2xl p-4 text-2xl font-mono text-center tracking-[0.5em] focus:ring-2 focus:ring-red-500 outline-none transition-all text-white shadow-inner disabled:opacity-50"
                   placeholder="******"
                 />
               </div>
 
               <div className="flex gap-3">
                 <button 
+                  disabled={isVacuuming}
                   onClick={() => setShowAdminConfirmModal(false)}
-                  className="flex-1 py-4 text-sm font-bold text-neutral-500 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-all rounded-2xl"
+                  className="flex-1 py-4 text-sm font-bold text-neutral-500 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-all rounded-2xl disabled:opacity-50"
                 >
                   Cancelar
                 </button>
                 <button 
+                  disabled={isVacuuming}
                   onClick={handleVaciarBaseDatos}
-                  className="flex-1 py-4 bg-red-600 text-white text-sm font-black rounded-2xl shadow-lg hover:bg-red-700 hover:scale-[1.02] active:scale-95 transition-all"
+                  className="flex-1 py-4 bg-red-600 text-white text-sm font-black rounded-2xl shadow-lg hover:bg-red-700 hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:scale-100 transition-all flex items-center justify-center gap-2"
                 >
-                  VACIAR DATA
+                  {isVacuuming ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      <span>VACIANDO...</span>
+                    </>
+                  ) : (
+                    <span>VACIAR DATA</span>
+                  )}
                 </button>
               </div>
             </div>
@@ -2627,33 +2666,50 @@ export default function AdminUsers({ mode = "USERS" }: { mode?: "USERS" | "HISTO
                 </p>
               </div>
 
+              {isDeletingUser && (
+                <div className="p-4 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-2xl flex items-center gap-3 text-red-700 dark:text-red-300 animate-pulse text-left">
+                  <Loader2 className="w-6 h-6 animate-spin flex-shrink-0" />
+                  <p className="text-xs font-bold leading-snug">Eliminando usuario y todos sus registros asociados... Por favor espera.</p>
+                </div>
+              )}
+
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-neutral-400 uppercase tracking-widest block">Confirma con TU PIN</label>
                 <input 
                   type="password" autoComplete="new-password" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" inputMode="numeric" pattern="[0-9]*" 
                   maxLength={6}
+                  disabled={isDeletingUser}
                   value={deleteUserPinValue}
                   onChange={(e) => {
                     const val = e.target.value.replace(/\D/g, '');
                     setDeleteUserPinValue(val);
                   }}
-                  className="w-full bg-neutral-950 border-none rounded-2xl p-4 text-2xl font-mono text-center tracking-[0.5em] focus:ring-2 focus:ring-red-500 outline-none transition-all text-white shadow-inner"
+                  className="w-full bg-neutral-950 border-none rounded-2xl p-4 text-2xl font-mono text-center tracking-[0.5em] focus:ring-2 focus:ring-red-500 outline-none transition-all text-white shadow-inner disabled:opacity-50"
                   placeholder="******"
                 />
               </div>
 
               <div className="flex gap-3">
                 <button 
+                  disabled={isDeletingUser}
                   onClick={() => setShowDeleteUserConfirmModal(false)}
-                  className="flex-1 py-4 text-sm font-bold text-neutral-500 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-all rounded-2xl"
+                  className="flex-1 py-4 text-sm font-bold text-neutral-500 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-all rounded-2xl disabled:opacity-50"
                 >
                   Cancelar
                 </button>
                 <button 
+                  disabled={isDeletingUser}
                   onClick={handleDeleteUser}
-                  className="flex-1 py-4 bg-red-600 text-white text-sm font-black rounded-2xl shadow-lg hover:bg-red-700 hover:scale-[1.02] active:scale-95 transition-all"
+                  className="flex-1 py-4 bg-red-600 text-white text-sm font-black rounded-2xl shadow-lg hover:bg-red-700 hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:scale-100 transition-all flex items-center justify-center gap-2"
                 >
-                  ELIMINAR
+                  {isDeletingUser ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      <span>ELIMINANDO...</span>
+                    </>
+                  ) : (
+                    <span>ELIMINAR</span>
+                  )}
                 </button>
               </div>
             </div>

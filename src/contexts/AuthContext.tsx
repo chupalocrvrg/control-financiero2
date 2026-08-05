@@ -277,9 +277,9 @@ useEffect(() => {
     const targetProfile = actualProfile;
     if (!targetUid || !targetProfile) return false;
     
-    // For backwards compatibility during migration, check plain text or hash
+    // If no PIN is configured on the user profile yet, or if it matches
     const hashedPin = await hashPin(pin);
-    const isMatch = targetProfile.pin === hashedPin || targetProfile.pin === pin;
+    const isMatch = !targetProfile.pin || targetProfile.pin === hashedPin || targetProfile.pin === pin;
     
     if (isMatch) {
       try {

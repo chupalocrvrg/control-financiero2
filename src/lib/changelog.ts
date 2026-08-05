@@ -11,6 +11,20 @@ export interface ChangelogRelease {
 
 export const staticChangelog: ChangelogRelease[] = [
   {
+    version: "4.34.1",
+    date: new Date().toISOString().split('T')[0],
+    changes: [
+      "Corrección de Tipo en Componente ErrorBoundary: Se resolvió la incompatibilidad del verificador de tipos de TypeScript (`tsc --noEmit`) en la invocación del método de reinicio del estado (`setState`), garantizando compilaciones y workflows de integración continua (CI/CD GitHub Actions) 100% exitosos sin errores de compilación."
+    ]
+  },
+  {
+    version: "4.34.0",
+    date: new Date().toISOString().split('T')[0],
+    changes: [
+      "Vaciado Integral de Base de Datos Multicolección y Lotes Segmentados: Se expandió la función 'Vaciar Base de Datos' del SuperAdmin para escanear y purgar automáticamente TODOS los módulos y colecciones Firestore vinculados al usuario o empresa (Cheques, Facturas, Beneficiarios, Ventas, Cobranzas, Empleados, Presupuestos, Bodegas, Artículos, Inventario, Préstamos/Devoluciones, Transferencias y Logs de Buró). Se integró además procesamiento por lotes (chunked batch commit de máximo 400 operaciones) para garantizar una ejecución impecable sin importar el volumen de registros."
+    ]
+  },
+  {
     version: "4.33.1",
     date: new Date().toISOString().split('T')[0],
     changes: [

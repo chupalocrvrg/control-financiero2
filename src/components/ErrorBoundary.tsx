@@ -110,7 +110,7 @@ export class ErrorBoundary extends Component<Props, State> {
             </div>
             <div className="flex flex-col gap-3">
               <button 
-                onClick={() => this.setState({ hasError: false, error: undefined })}
+                onClick={() => (this as any).setState({ hasError: false, error: undefined })}
                 className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition-all shadow-md shadow-indigo-200 dark:shadow-none cursor-pointer"
               >
                 <RefreshCcw className="w-5 h-5" />

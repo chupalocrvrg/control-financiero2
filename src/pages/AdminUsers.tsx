@@ -779,41 +779,75 @@ export default function AdminUsers({ mode = "USERS" }: { mode?: "USERS" | "HISTO
         return;
       }
 
-      console.log(`Iniciando vaciado de datos para: ${selectedUser.name} (${selectedUser.id})`);
+      console.log(`Iniciando vaciado total de datos para: ${selectedUser.name} (${selectedUser.id})`);
       
-      // Fetch checks
-      const checksPath = 'checks';
-      const checksQ = query(collection(db, checksPath), where('userId', '==', selectedUser.id));
-      const checksSnaps = await getDocs(checksQ);
-      console.log(`Encontrados ${checksSnaps.size} cheques para eliminar.`);
-      
-      // Fetch invoices
-      const invoicesPath = 'invoices';
-      const invoicesQ = query(collection(db, invoicesPath), where('userId', '==', selectedUser.id));
-      const invSnaps = await getDocs(invoicesQ);
-      console.log(`Encontradas ${invSnaps.size} facturas para eliminar.`);
-      
+      const userId = selectedUser.id;
+
+      // Define all collection/field patterns to purge
+      const collectionsToClear = [
+        { name: 'checks', field: 'userId' },
+        { name: 'checks', field: 'enterpriseId' },
+        { name: 'invoices', field: 'userId' },
+        { name: 'invoices', field: 'enterpriseId' },
+        { name: 'beneficiaries', field: 'userId' },
+        { name: 'sales', field: 'userId' },
+        { name: 'sales', field: 'enterpriseId' },
+        { name: 'collections', field: 'userId' },
+        { name: 'collections', field: 'enterpriseId' },
+        { name: 'employees', field: 'enterpriseId' },
+        { name: 'employees', field: 'userId' },
+        { name: 'budgets', field: 'enterpriseId' },
+        { name: 'budgets', field: 'userId' },
+        { name: 'warehouses', field: 'userId' },
+        { name: 'articles', field: 'userId' },
+        { name: 'warehouse_inventory', field: 'userId' },
+        { name: 'loans_returns', field: 'userId' },
+        { name: 'inventory_sales', field: 'userId' },
+        { name: 'transfers', field: 'userId' },
+        { name: 'buro_logs', field: 'userId' },
+        { name: 'buro_logs', field: 'enterpriseId' },
+      ];
+
+      // Collect unique document references
+      const docsToDeleteMap = new Map<string, { colName: string; docId: string }>();
+
+      for (const item of collectionsToClear) {
+        try {
+          const q = query(collection(db, item.name), where(item.field, '==', userId));
+          const snap = await getDocs(q);
+          snap.docs.forEach(d => {
+            const key = `${item.name}/${d.id}`;
+            docsToDeleteMap.set(key, { colName: item.name, docId: d.id });
+          });
+        } catch (err) {
+          console.warn(`Error consultando colección ${item.name} para ${item.field}:`, err);
+        }
+      }
+
+      const totalDocs = docsToDeleteMap.size;
+      console.log(`Total de documentos a vaciar para ${selectedUser.name}: ${totalDocs}`);
+
       const { writeBatch } = await import('firebase/firestore');
-      const batch = writeBatch(db);
+      const docEntries = Array.from(docsToDeleteMap.values());
       
-      checksSnaps.docs.forEach(d => {
-        batch.delete(doc(db, checksPath, d.id));
-      });
+      // Delete in chunked batches of 400 to prevent Firestore 500-op limit
+      const CHUNK_SIZE = 400;
+      for (let i = 0; i < docEntries.length; i += CHUNK_SIZE) {
+        const chunk = docEntries.slice(i, i + CHUNK_SIZE);
+        const batch = writeBatch(db);
+        chunk.forEach(item => {
+          batch.delete(doc(db, item.colName, item.docId));
+        });
+        await batch.commit();
+      }
       
-      invSnaps.docs.forEach(d => {
-        batch.delete(doc(db, invoicesPath, d.id));
-      });
-      
-      await batch.commit();
-      console.log("Batch commit completado exitosamente.");
-      
-      if (viewingUserInstance?.id === selectedUser.id) {
+      if (viewingUserInstance?.id === userId) {
         setUserChecks([]);
       }
       
-      logAudit(AuditAction.DB_VACUUM, `Vaciada base de datos del usuario ${selectedUser.name} (${selectedUser.id}). Se eliminaron ${checksSnaps.size} cheques y ${invSnaps.size} facturas.`);
+      logAudit(AuditAction.DB_VACUUM, `Vaciada base de datos completa del usuario ${selectedUser.name} (${userId}). Se eliminaron ${totalDocs} registros de todas las módulos.`);
       
-      showAlert("Vaciado Completado", `Se han eliminado ${checksSnaps.size} cheques y ${invSnaps.size} facturas de ${selectedUser.name} exitosamente.`, "success");
+      showAlert("Vaciado Completado", `Se han eliminado exitosamente TODOS los registros (${totalDocs} documentos) vinculados a ${selectedUser.name} en todo el sistema.`, "success");
       setShowAdminConfirmModal(false);
       setAdminPinValue('');
     } catch (e) {
@@ -837,32 +871,70 @@ export default function AdminUsers({ mode = "USERS" }: { mode?: "USERS" | "HISTO
         return;
       }
 
-      console.log(`Iniciando eliminación total del usuario: ${selectedUser.name} (${selectedUser.id})`);
+      console.log(`Iniciando eliminación total del usuario y su data: ${selectedUser.name} (${selectedUser.id})`);
       
+      const userId = selectedUser.id;
+
+      const collectionsToClear = [
+        { name: 'checks', field: 'userId' },
+        { name: 'checks', field: 'enterpriseId' },
+        { name: 'invoices', field: 'userId' },
+        { name: 'invoices', field: 'enterpriseId' },
+        { name: 'beneficiaries', field: 'userId' },
+        { name: 'sales', field: 'userId' },
+        { name: 'sales', field: 'enterpriseId' },
+        { name: 'collections', field: 'userId' },
+        { name: 'collections', field: 'enterpriseId' },
+        { name: 'employees', field: 'enterpriseId' },
+        { name: 'employees', field: 'userId' },
+        { name: 'budgets', field: 'enterpriseId' },
+        { name: 'budgets', field: 'userId' },
+        { name: 'warehouses', field: 'userId' },
+        { name: 'articles', field: 'userId' },
+        { name: 'warehouse_inventory', field: 'userId' },
+        { name: 'loans_returns', field: 'userId' },
+        { name: 'inventory_sales', field: 'userId' },
+        { name: 'transfers', field: 'userId' },
+        { name: 'buro_logs', field: 'userId' },
+        { name: 'buro_logs', field: 'enterpriseId' },
+      ];
+
+      const docsToDeleteMap = new Map<string, { colName: string; docId: string }>();
+
+      for (const item of collectionsToClear) {
+        try {
+          const q = query(collection(db, item.name), where(item.field, '==', userId));
+          const snap = await getDocs(q);
+          snap.docs.forEach(d => {
+            const key = `${item.name}/${d.id}`;
+            docsToDeleteMap.set(key, { colName: item.name, docId: d.id });
+          });
+        } catch (err) {
+          console.warn(`Error consultando colección ${item.name} para ${item.field}:`, err);
+        }
+      }
+
+      // Add user settings and profile documents
+      docsToDeleteMap.set(`settings/${userId}`, { colName: 'settings', docId: userId });
+      docsToDeleteMap.set(`userSettings/${userId}`, { colName: 'userSettings', docId: userId });
+      docsToDeleteMap.set(`users/${userId}`, { colName: 'users', docId: userId });
+
       const { writeBatch } = await import('firebase/firestore');
-      const batch = writeBatch(db);
+      const docEntries = Array.from(docsToDeleteMap.values());
       
-      const checksQ = query(collection(db, 'checks'), where('userId', '==', selectedUser.id));
-      const checksSnaps = await getDocs(checksQ);
-      checksSnaps.docs.forEach(d => batch.delete(doc(db, 'checks', d.id)));
-      
-      const invoicesQ = query(collection(db, 'invoices'), where('userId', '==', selectedUser.id));
-      const invSnaps = await getDocs(invoicesQ);
-      invSnaps.docs.forEach(d => batch.delete(doc(db, 'invoices', d.id)));
-
-      const benQ = query(collection(db, 'beneficiaries'), where('userId', '==', selectedUser.id));
-      const benSnaps = await getDocs(benQ);
-      benSnaps.docs.forEach(d => batch.delete(doc(db, 'beneficiaries', d.id)));
-
-      batch.delete(doc(db, 'settings', selectedUser.id));
-      batch.delete(doc(db, 'userSettings', selectedUser.id));
-      batch.delete(doc(db, 'users', selectedUser.id));
-      
-      await batch.commit();
+      const CHUNK_SIZE = 400;
+      for (let i = 0; i < docEntries.length; i += CHUNK_SIZE) {
+        const chunk = docEntries.slice(i, i + CHUNK_SIZE);
+        const batch = writeBatch(db);
+        chunk.forEach(item => {
+          batch.delete(doc(db, item.colName, item.docId));
+        });
+        await batch.commit();
+      }
       
       setUsers(prev => prev.filter(u => u.id !== selectedUser.id));
       
-      logAudit(AuditAction.USER_DELETE, `Eliminado permanentemente usuario ${selectedUser.name} (${selectedUser.id}). Se eliminaron todos sus registros.`);
+      logAudit(AuditAction.USER_DELETE, `Eliminado permanentemente usuario ${selectedUser.name} (${selectedUser.id}). Se eliminaron todos sus registros (${docEntries.length} documentos).`);
       
       setSelectedUser(null);
       

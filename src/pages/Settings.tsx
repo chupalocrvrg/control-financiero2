@@ -522,13 +522,13 @@ export default function Settings() {
       
       const fileText = await file.text();
       let importedData;
-      if (file.name.endsWith('.json')) {
+      if (file.name.toLowerCase().endsWith('.json')) {
         importedData = JSON.parse(fileText);
         if (importedData.dbData) importedData = importedData.dbData;
         else if (importedData.data) importedData = importedData.data;
         else if (importedData.backup) importedData = importedData.backup;
       } else {
-         showToast("La importación desde Excel aún no está completamente soportada, use JSON", "error");
+         showToast("Formato no soportado. Para restaurar la base de datos, por favor seleccione un archivo en formato JSON.", "error");
          setLoading(false);
          setBackupPin('');
          if (e.target) e.target.value = '';
@@ -1246,7 +1246,7 @@ export default function Settings() {
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-neutral-900 dark:text-neutral-50">Respaldos y Migración</h2>
-                  <p className="text-sm text-neutral-500 dark:text-neutral-400">Exporta e importa los datos del sistema (Excel/JSON).</p>
+                  <p className="text-sm text-neutral-500 dark:text-neutral-400">Exporta e importa los datos del sistema (JSON).</p>
                 </div>
               </div>
 
@@ -1289,11 +1289,11 @@ export default function Settings() {
                       <h3 className="font-bold text-neutral-900 dark:text-white flex items-center gap-2">
                         <Upload className="w-5 h-5 text-indigo-500" /> Importar Datos
                       </h3>
-                      <p className="text-xs text-neutral-500 mt-1">Restaura la base de datos (Requiere archivo JSON o Excel).</p>
+                      <p className="text-xs text-neutral-500 mt-1">Restaura la base de datos (Requiere archivo JSON).</p>
                     </div>
                     <div className="flex gap-3 relative">
-                      <input type="file" id="file-overwrite" className="hidden" accept=".json,.xlsx,.xls" onChange={(e) => handleImport(e, 'overwrite')} />
-                      <input type="file" id="file-merge" className="hidden" accept=".json,.xlsx,.xls" onChange={(e) => handleImport(e, 'merge')} />
+                      <input type="file" id="file-overwrite" className="hidden" accept=".json,application/json" onChange={(e) => handleImport(e, 'overwrite')} />
+                      <input type="file" id="file-merge" className="hidden" accept=".json,application/json" onChange={(e) => handleImport(e, 'merge')} />
                       
                       <label htmlFor="file-overwrite" className={`flex-1 py-3 bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-xl text-sm font-bold text-center cursor-pointer hover:bg-red-100 transition-all ${loading || backupPin.length !== 6 ? 'opacity-50 pointer-events-none' : ''}`}>
                         Sobreescribir

@@ -11,6 +11,13 @@ export interface ChangelogRelease {
 
 export const staticChangelog: ChangelogRelease[] = [
   {
+    version: "4.30.1",
+    date: new Date().toISOString().split('T')[0],
+    changes: [
+      "Restricción Exclusiva a JSON en Importación de Respaldos: Se actualizó el selector de archivos y la validación en Configuración > Respaldos y Migración para permitir únicamente archivos en formato JSON (.json), deshabilitando la selección de hojas de cálculo Excel y mostrando un mensaje amigable al usuario."
+    ]
+  },
+  {
     version: "4.30.0",
     date: new Date().toISOString().split('T')[0],
     changes: [

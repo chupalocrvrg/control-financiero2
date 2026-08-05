@@ -1291,14 +1291,7 @@ const handleGenerateAdvancedReport = async (reportType: 'pdf' | 'excel') => {
               )}
             </div>
 
-            <div className="mt-8 pt-6 border-t border-neutral-100 dark:border-neutral-800">
-              <button 
-                onClick={() => setShowCustomReportModal(true)}
-                className="w-full py-3 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-bold rounded-xl text-sm border border-indigo-100 dark:border-indigo-800/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-all"
-              >
-                Crear Reporte Personalizado
-              </button>
-            </div>
+
           </div>
 
         </div>
@@ -1385,6 +1378,17 @@ function CommerceCard({ data }: { data: any; key?: any }) {
   const salesPct = data.salesBudget > 0 ? (data.totalSales / data.salesBudget) * 100 : 0;
   const collPct = data.collectionsBudget > 0 ? (data.totalCollections / data.collectionsBudget) * 100 : 0;
   
+  // Daily projection calculation based on current date in month
+  const now = new Date();
+  const currentDay = Math.max(1, now.getDate());
+  const totalDaysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  
+  const projectedSales = (data.totalSales / currentDay) * totalDaysInMonth;
+  const projectedSalesPct = data.salesBudget > 0 ? (projectedSales / data.salesBudget) * 100 : 0;
+  
+  const projectedCollections = (data.totalCollections / currentDay) * totalDaysInMonth;
+  const projectedCollectionsPct = data.collectionsBudget > 0 ? (projectedCollections / data.collectionsBudget) * 100 : 0;
+
   const canSell = data.employee.role === 'vendedor' || data.employee.role === 'ambos' || data.employee.role === 'supervisor_ventas' || data.employee.role === 'supervisor_general';
   const canCollect = data.employee.role === 'cobrador' || data.employee.role === 'ambos' || data.employee.role === 'supervisor_cobranza' || data.employee.role === 'supervisor_general';
   
@@ -1425,6 +1429,20 @@ function CommerceCard({ data }: { data: any; key?: any }) {
                 className={`h-2 rounded-full ${salesPct >= 100 ? 'bg-emerald-500' : 'bg-indigo-500'}`} 
                 style={{ width: `${Math.min(salesPct, 100)}%` }} 
               />
+            </div>
+
+            {/* Projection Box for Sales */}
+            <div className="flex justify-between items-center text-xs text-indigo-700 dark:text-indigo-300 bg-indigo-50/80 dark:bg-indigo-950/40 px-3 py-2 rounded-xl border border-indigo-100 dark:border-indigo-900/40 mt-1">
+              <div className="flex items-center gap-1.5 font-medium">
+                <TrendingUp className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                <span>Proyección Fin de Mes:</span>
+                <span className="font-bold text-indigo-900 dark:text-indigo-200">
+                  ${projectedSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className={`font-black ${projectedSalesPct >= 100 ? 'text-emerald-600 dark:text-emerald-400' : 'text-indigo-600 dark:text-indigo-400'}`}>
+                {projectedSalesPct.toFixed(2)}%
+              </div>
             </div>
             
             <div className="pt-3 grid grid-cols-2 gap-4 text-xs text-neutral-600 dark:text-neutral-400 bg-neutral-50 dark:bg-neutral-800/50 p-3 rounded-lg border border-neutral-100 dark:border-neutral-800 mt-2 animate-in fade-in slide-in-from-top-2">
@@ -1470,6 +1488,20 @@ function CommerceCard({ data }: { data: any; key?: any }) {
                 className={`h-2 rounded-full ${collPct >= 100 ? 'bg-emerald-500' : 'bg-emerald-400'}`} 
                 style={{ width: `${Math.min(collPct, 100)}%` }} 
               />
+            </div>
+
+            {/* Projection Box for Collections */}
+            <div className="flex justify-between items-center text-xs text-emerald-700 dark:text-emerald-300 bg-emerald-50/80 dark:bg-emerald-950/40 px-3 py-2 rounded-xl border border-emerald-100 dark:border-emerald-900/40 mt-1">
+              <div className="flex items-center gap-1.5 font-medium">
+                <TrendingUp className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                <span>Proyección Fin de Mes:</span>
+                <span className="font-bold text-emerald-900 dark:text-emerald-200">
+                  ${projectedCollections.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className={`font-black ${projectedCollectionsPct >= 100 ? 'text-emerald-600 dark:text-emerald-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                {projectedCollectionsPct.toFixed(2)}%
+              </div>
             </div>
           </div>
         )}

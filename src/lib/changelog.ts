@@ -11,6 +11,48 @@ export interface ChangelogRelease {
 
 export const staticChangelog: ChangelogRelease[] = [
   {
+    version: "4.33.1",
+    date: new Date().toISOString().split('T')[0],
+    changes: [
+      "Bloqueo de Desplazamiento de Fondo y Desenfoque Global Completo (100% Viewport): Se eliminó la aceleración GPU del contenedor principal de layout para permitir que las ventanas modales se fijen correctamente a la ventana del navegador. Además, se implementó un bloqueo automático de scroll (`body overflow: hidden`) para prevenir que el fondo se deslice al interactuar con cualquier modal (Ventas, Cobranzas, Simulación de Sesión, etc.), manteniendo la tarjeta perfectamente centrada y el efecto de desenfoque (`backdrop-blur-md`) cubriendo el 100% de la pantalla."
+    ]
+  },
+  {
+    version: "4.33.0",
+    date: new Date().toISOString().split('T')[0],
+    changes: [
+      "Ocultamiento Automático del Dock en Modales (Opción A): Se implementó un detector reactivo inteligente que oculta de forma fluida la barra flotante (Dock) y botones flotantes cuando se abre cualquier ventana emergente o modal, garantizando un desenfoque de fondo limpio de borde a borde y previniendo cualquier obstrucción visual en las planillas de Ventas y Cobranzas."
+    ]
+  },
+  {
+    version: "4.32.2",
+    date: new Date().toISOString().split('T')[0],
+    changes: [
+      "Ajuste de Superposición Visual (z-index): Se elevó la capa de superposición de las ventanas modales de Registro de Ventas, Cobranzas y Formularios (z-[100]) por encima de la barra de navegación flotante Dock (z-40), garantizando que los botones de acción e inputs inferiores no sean tapados ni obstruidos."
+    ]
+  },
+  {
+    version: "4.32.1",
+    date: new Date().toISOString().split('T')[0],
+    changes: [
+      "Optimización en Dashboard: Eliminación del botón duplicado de 'Crear Reporte Personalizado' en la parte inferior del Dashboard, conservando únicamente el botón principal 'Generar Reporte' en la cabecera superior."
+    ]
+  },
+  {
+    version: "4.32.0",
+    date: new Date().toISOString().split('T')[0],
+    changes: [
+      "Notificación Flotante con Progreso de Importación: Se implementó una tarjeta flotante dinámica en Configuración > Respaldos que muestra en tiempo real el porcentaje de avance (0% - 100%), la colección actual en proceso (Empleados, Ventas, Cobranzas, etc.) y la cantidad exacta de registros importados en la base de datos."
+    ]
+  },
+  {
+    version: "4.31.0",
+    date: new Date().toISOString().split('T')[0],
+    changes: [
+      "Proyección Mensual en Rendimiento Comercial: Incorporación de cálculo automático de proyección a fin de mes (monto estimado y porcentaje respecto al presupuesto asignado) en cada tarjeta de empleado (ventas y cobranzas) utilizando la fórmula basada en el ritmo diario transcurrido del mes actual."
+    ]
+  },
+  {
     version: "4.30.1",
     date: new Date().toISOString().split('T')[0],
     changes: [

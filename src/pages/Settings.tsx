@@ -7,7 +7,7 @@ import { doc, getDoc, updateDoc, collection, getDocs, writeBatch, query, where }
 import { storage } from '../firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
-import { Save, Plus, Trash2, Shield, Globe, Palette, Monitor, Calculator, Sun, Moon, PaintBucket, Building, User, Database, Download, Upload, AlignLeft, AlignRight, ArrowUp, ArrowDown, Type } from 'lucide-react';
+import { Save, Plus, Trash2, Shield, Globe, Palette, Monitor, Calculator, Sun, Moon, PaintBucket, Building, User, Database, Download, Upload, AlignLeft, AlignRight, ArrowUp, ArrowDown, Type, Loader2, CheckCircle2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import * as XLSX from 'xlsx';
 import { logAudit, AuditAction } from '../lib/audit';
@@ -30,6 +30,15 @@ export default function Settings() {
   const [positionConfirmTimer, setPositionConfirmTimer] = useState<number | null>(null);
   const [previousMenuPosition, setPreviousMenuPosition] = useState(settings.menuPosition);
   const [timeLeft, setTimeLeft] = useState(0);
+  const [importProgress, setImportProgress] = useState<{
+    active: boolean;
+    stageName: string;
+    currentCount: number;
+    totalCount: number;
+    percentage: number;
+    mode: 'merge' | 'overwrite';
+    collectionName?: string;
+  } | null>(null);
 
   const handlePositionChange = (newPos: 'left' | 'right' | 'top' | 'bottom') => {
     if (newPos === (settings.menuPosition || 'left')) return;
@@ -514,6 +523,15 @@ export default function Settings() {
     if (!file) return;
     
     setLoading(true);
+    setImportProgress({
+      active: true,
+      stageName: "Leyendo archivo JSON...",
+      currentCount: 0,
+      totalCount: 0,
+      percentage: 5,
+      mode
+    });
+
     try {
       const activeUid = impersonatedUser 
         ? impersonatedUser.uid 
@@ -530,6 +548,7 @@ export default function Settings() {
       } else {
          showToast("Formato no soportado. Para restaurar la base de datos, por favor seleccione un archivo en formato JSON.", "error");
          setLoading(false);
+         setImportProgress(null);
          setBackupPin('');
          if (e.target) e.target.value = '';
          return;
@@ -549,27 +568,38 @@ export default function Settings() {
         return result;
       };
 
-      const collectionsMap: Record<string, string> = {
-        employees: 'employees',
-        checks: 'checks',
-        sales: 'sales',
-        collections: 'collections',
-        inventory: 'articles',
-        articles: 'articles',
-        invoices: 'invoices',
-        beneficiaries: 'beneficiaries',
-        budgets: 'budgets',
-        warehouses: 'warehouses',
-        warehouse_inventory: 'warehouse_inventory',
-        loans_returns: 'loans_returns',
-        transfers: 'transfers',
-        inventory_sales: 'inventory_sales'
+      const collectionsMap: Record<string, { col: string; label: string }> = {
+        employees: { col: 'employees', label: 'Empleados' },
+        checks: { col: 'checks', label: 'Cheques' },
+        sales: { col: 'sales', label: 'Ventas' },
+        collections: { col: 'collections', label: 'Cobranzas' },
+        inventory: { col: 'articles', label: 'Inventario / Artículos' },
+        articles: { col: 'articles', label: 'Artículos' },
+        invoices: { col: 'invoices', label: 'Facturas' },
+        beneficiaries: { col: 'beneficiaries', label: 'Beneficiarios' },
+        budgets: { col: 'budgets', label: 'Presupuestos' },
+        warehouses: { col: 'warehouses', label: 'Bodegas' },
+        warehouse_inventory: { col: 'warehouse_inventory', label: 'Inventario de Bodegas' },
+        loans_returns: { col: 'loans_returns', label: 'Préstamos / Devoluciones' },
+        transfers: { col: 'transfers', label: 'Transferencias' },
+        inventory_sales: { col: 'inventory_sales', label: 'Ventas de Inventario' }
       };
 
-      const operations: { docRef: any; data: any }[] = [];
+      setImportProgress({
+        active: true,
+        stageName: "Analizando colecciones y verificando registros...",
+        currentCount: 0,
+        totalCount: 0,
+        percentage: 15,
+        mode
+      });
+
+      const operations: { docRef: any; data: any; label: string }[] = [];
       const processedDocKeys = new Set<string>();
       
-      for (const [key, collectionName] of Object.entries(collectionsMap)) {
+      for (const [key, meta] of Object.entries(collectionsMap)) {
+        const collectionName = meta.col;
+        const label = meta.label;
         if (importedData[key] && Array.isArray(importedData[key])) {
            for (const item of importedData[key]) {
              const docId = item.id || crypto.randomUUID();
@@ -584,7 +614,7 @@ export default function Settings() {
              dataToSave.enterpriseId = activeUid;
              dataToSave.userId = activeUid;
              
-             operations.push({ docRef, data: dataToSave });
+             operations.push({ docRef, data: dataToSave, label });
            }
         }
       }
@@ -592,13 +622,24 @@ export default function Settings() {
       if (operations.length === 0) {
         showToast("No se encontraron registros para importar en el archivo JSON", "error");
         setLoading(false);
+        setImportProgress(null);
         setBackupPin('');
         if (e.target) e.target.value = '';
         return;
       }
 
-      const BATCH_SIZE = 400;
-      const totalBatches = Math.ceil(operations.length / BATCH_SIZE);
+      const totalOps = operations.length;
+      setImportProgress({
+        active: true,
+        stageName: `Iniciando guardado de ${totalOps} registros...`,
+        currentCount: 0,
+        totalCount: totalOps,
+        percentage: 20,
+        mode
+      });
+
+      const BATCH_SIZE = 250;
+      const totalBatches = Math.ceil(totalOps / BATCH_SIZE);
 
       for (let i = 0; i < totalBatches; i++) {
         const currentBatch = writeBatch(db);
@@ -607,10 +648,36 @@ export default function Settings() {
           currentBatch.set(op.docRef, op.data, { merge: true });
         }
         await currentBatch.commit();
+        
+        const currentCount = Math.min((i + 1) * BATCH_SIZE, totalOps);
+        const percentage = Math.round(20 + (currentCount / totalOps) * 75);
+        const currentLabel = chunk[0]?.label || 'Registros';
+        
+        setImportProgress({
+          active: true,
+          stageName: `Importando ${currentLabel} (${currentCount} de ${totalOps})`,
+          currentCount,
+          totalCount: totalOps,
+          percentage,
+          mode,
+          collectionName: currentLabel
+        });
       }
-      
-      showToast(`Base de datos restaurada con éxito (${operations.length} registros en modo ${mode === 'merge' ? 'Fusión' : 'Sobreescritura'})`, "success");
-      await logAudit(AuditAction.SETTINGS_UPDATE, `Importación de base de datos completa (${operations.length} registros en modo ${mode})`);
+
+      setImportProgress({
+        active: true,
+        stageName: "¡Importación completada con éxito!",
+        currentCount: totalOps,
+        totalCount: totalOps,
+        percentage: 100,
+        mode
+      });
+
+      showToast(`Base de datos restaurada con éxito (${totalOps} registros en modo ${mode === 'merge' ? 'Fusión' : 'Sobreescritura'})`, "success");
+      await logAudit(AuditAction.SETTINGS_UPDATE, `Importación de base de datos completa (${totalOps} registros en modo ${mode})`);
+
+      await new Promise(res => setTimeout(res, 1000));
+
     } catch (err: any) {
       console.error("Error importando:", err);
       showToast("Error importando: " + (err?.message || "Error desconocido al procesar el archivo JSON"), "error");
@@ -621,6 +688,7 @@ export default function Settings() {
       }
     } finally {
       setLoading(false);
+      setImportProgress(null);
       setBackupPin('');
       if (e.target) e.target.value = '';
     }
@@ -1319,7 +1387,7 @@ export default function Settings() {
 
       {/* 2FA TOTP Setup Modal */}
       {showTotpModal && totpSetup && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center p-4 z-[100] animate-in fade-in duration-200">
           <div className="bg-white dark:bg-neutral-900 rounded-[2.5rem] p-8 w-full max-w-md shadow-2xl relative border border-neutral-100 dark:border-neutral-800">
             <div className="text-center mb-6">
               <div className="mx-auto w-16 h-16 bg-indigo-50 dark:bg-indigo-900/30 rounded-2xl flex items-center justify-center mb-4 text-indigo-600 dark:text-indigo-400">
@@ -1371,6 +1439,51 @@ export default function Settings() {
                   {loading ? 'Verificando...' : 'Verificar y Guardar'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Import Progress Notification Card */}
+      {importProgress && importProgress.active && (
+        <div className="fixed bottom-6 right-6 z-[150] w-96 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl p-5 shadow-2xl animate-in fade-in slide-in-from-bottom-5">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2.5 bg-indigo-50 dark:bg-indigo-950/60 rounded-xl text-indigo-600 dark:text-indigo-400">
+                {importProgress.percentage === 100 ? (
+                  <CheckCircle2 className="w-5 h-5 text-emerald-500 animate-bounce" />
+                ) : (
+                  <Loader2 className="w-5 h-5 animate-spin text-indigo-500" />
+                )}
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-neutral-900 dark:text-white flex items-center gap-1.5">
+                  Importando Datos
+                </h4>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                  Modo: <span className="font-semibold capitalize text-neutral-700 dark:text-neutral-300">{importProgress.mode === 'merge' ? 'Fusión (Merge)' : 'Sobreescritura'}</span>
+                </p>
+              </div>
+            </div>
+            <span className="text-sm font-black text-indigo-600 dark:text-indigo-400 font-mono">
+              {importProgress.percentage}%
+            </span>
+          </div>
+
+          <div className="space-y-2">
+            <div className="w-full bg-neutral-100 dark:bg-neutral-800 rounded-full h-2.5 overflow-hidden">
+              <div 
+                className="bg-indigo-600 dark:bg-indigo-500 h-2.5 rounded-full transition-all duration-300 ease-out"
+                style={{ width: `${importProgress.percentage}%` }}
+              />
+            </div>
+            <div className="flex justify-between items-center text-xs text-neutral-500 dark:text-neutral-400 pt-1">
+              <span className="truncate pr-2 font-medium">{importProgress.stageName}</span>
+              {importProgress.totalCount > 0 && (
+                <span className="font-mono text-neutral-400 shrink-0">
+                  {importProgress.currentCount}/{importProgress.totalCount}
+                </span>
+              )}
             </div>
           </div>
         </div>

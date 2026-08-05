@@ -355,6 +355,32 @@ export default function Layout() {
   const isGlass = isGlassStyle || isLiquidGlassStyle;
   const pos = settings.menuPosition || 'left';
   const isHorizontal = pos === 'top' || pos === 'bottom';
+
+  // Detect if any modal overlay is mounted on screen to hide floating Dock automatically (Option A)
+  const [hasActiveModal, setHasActiveModal] = useState(false);
+  useEffect(() => {
+    const checkActiveModal = () => {
+      // Find active fixed overlays that are interactable modals (exclude pointer-events-none background blobs)
+      const modalEl = document.querySelector('.fixed.inset-0:not(.pointer-events-none)');
+      const isActive = !!modalEl;
+      setHasActiveModal(isActive);
+      if (isActive) {
+        document.body.style.overflow = 'hidden';
+      } else {
+        document.body.style.overflow = '';
+      }
+    };
+
+    checkActiveModal();
+    const observer = new MutationObserver(checkActiveModal);
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style'] });
+
+    return () => {
+      observer.disconnect();
+      document.body.style.overflow = '';
+    };
+  }, []);
+
   useEffect(() => {
     if (isGlass) {
       document.documentElement.classList.add('theme-glass');
@@ -475,17 +501,18 @@ export default function Layout() {
   const sidebarClass = cn(
     "hidden md:flex transition-all duration-300",
     pos === 'bottom'
-      ? "fixed bottom-6 left-1/2 -translate-x-1/2 w-auto h-20 px-6 rounded-[2rem] border flex-row items-center justify-center z-50 gap-4"
+      ? "fixed bottom-6 left-1/2 -translate-x-1/2 w-auto h-20 px-6 rounded-[2rem] border flex-row items-center justify-center z-40 gap-4"
       : pos === 'top'
-      ? "fixed top-6 left-1/2 -translate-x-1/2 w-auto h-20 px-6 rounded-[2rem] border flex-row items-center justify-center z-50 gap-4"
+      ? "fixed top-6 left-1/2 -translate-x-1/2 w-auto h-20 px-6 rounded-[2rem] border flex-row items-center justify-center z-40 gap-4"
       : pos === 'left'
-      ? "fixed left-6 top-1/2 -translate-y-1/2 w-20 h-auto py-6 rounded-[2rem] border flex-col items-center justify-center z-50 gap-4"
-      : "fixed right-6 top-1/2 -translate-y-1/2 w-20 h-auto py-6 rounded-[2rem] border flex-col items-center justify-center z-50 gap-4",
+      ? "fixed left-6 top-1/2 -translate-y-1/2 w-20 h-auto py-6 rounded-[2rem] border flex-col items-center justify-center z-40 gap-4"
+      : "fixed right-6 top-1/2 -translate-y-1/2 w-20 h-auto py-6 rounded-[2rem] border flex-col items-center justify-center z-40 gap-4",
     isClassicStyle
       ? "bg-white dark:bg-neutral-900 border-neutral-200 dark:border-neutral-800 shadow-[0_15px_35px_rgba(0,0,0,0.1)] dark:shadow-[0_15px_35px_rgba(0,0,0,0.4)]"
       : isGlassStyle
       ? "bg-white/60 dark:bg-neutral-900/40 backdrop-blur-[20px] border-white/40 dark:border-white/10 shadow-[0_15px_35px_rgba(0,0,0,0.15)] dark:shadow-[0_15px_35px_rgba(0,0,0,0.4)]"
-      : "bg-white/20 dark:bg-neutral-900/25 backdrop-blur-[20px] border-white/30 dark:border-white/10 shadow-[0_15px_35px_rgba(0,0,0,0.15)] dark:shadow-[0_15px_35px_rgba(0,0,0,0.4)]"
+      : "bg-white/20 dark:bg-neutral-900/25 backdrop-blur-[20px] border-white/30 dark:border-white/10 shadow-[0_15px_35px_rgba(0,0,0,0.15)] dark:shadow-[0_15px_35px_rgba(0,0,0,0.4)]",
+    hasActiveModal && "opacity-0 pointer-events-none scale-90 invisible"
   );
 
   return (
@@ -590,7 +617,7 @@ export default function Layout() {
 
       {/* Mobile top bar */}
       <div className={cn(
-        "md:hidden flex items-center justify-between p-4 border-b sticky top-0 z-50 transition-all duration-300",
+        "md:hidden flex items-center justify-between p-4 border-b sticky top-0 z-40 transition-all duration-300",
         isClassicStyle
           ? "bg-white dark:bg-neutral-900 border-neutral-200 dark:border-neutral-800"
           : isGlassStyle
@@ -612,7 +639,8 @@ export default function Layout() {
 
       {/* Main content */}
       <div className={cn(
-        "flex-1 flex flex-col h-screen overflow-y-auto overflow-x-hidden overscroll-y-none transform-gpu relative z-10 transition-all duration-300 pb-24 md:pb-0",
+        "flex-1 flex flex-col h-screen overflow-x-hidden overscroll-y-none relative z-10 transition-all duration-300 pb-24 md:pb-0",
+        hasActiveModal ? "overflow-hidden" : "overflow-y-auto",
         pos === 'left' && "md:pl-32",
         pos === 'right' && "md:pr-32",
         pos === 'top' && "pt-32",
@@ -653,12 +681,13 @@ export default function Layout() {
       {/* Floating Unified Mobile Bottom Navigation */}
       <div 
         className={cn(
-          "md:hidden fixed bottom-4 left-4 right-4 h-16 rounded-[1.5rem] border flex justify-around items-center px-4 z-50 gap-2 shadow-lg transition-all duration-300",
+          "md:hidden fixed bottom-4 left-4 right-4 h-16 rounded-[1.5rem] border flex justify-around items-center px-4 z-40 gap-2 shadow-lg transition-all duration-300",
           isClassicStyle
             ? "bg-white dark:bg-neutral-900 border-neutral-200 dark:border-neutral-800"
             : isGlassStyle
             ? "bg-white/70 dark:bg-neutral-900/60 backdrop-blur-[15px] border-white/30 dark:border-white/10"
-            : "bg-white/20 dark:bg-neutral-900/25 backdrop-blur-[20px] border-white/20 dark:border-white/10"
+            : "bg-white/20 dark:bg-neutral-900/25 backdrop-blur-[20px] border-white/20 dark:border-white/10",
+          hasActiveModal && "opacity-0 pointer-events-none translate-y-10 scale-95 invisible"
         )}
         onMouseLeave={() => setHoveredIndex(null)}
       >
@@ -685,7 +714,10 @@ export default function Layout() {
         href="https://wa.me/593985441487?text=Hola,%20necesito%20soporte%20con%20la%20App%20Control%20Cheques"
         target="_blank"
         rel="noopener noreferrer"
-        className="fixed bottom-20 md:bottom-8 right-4 md:right-8 z-[100] flex items-center gap-2 bg-[#25D366] hover:bg-[#20ba5a] text-white p-3 md:px-5 md:py-3 rounded-full shadow-2xl transition-all hover:scale-105 active:scale-95 font-bold group"
+        className={cn(
+          "fixed bottom-20 md:bottom-8 right-4 md:right-8 z-[90] flex items-center gap-2 bg-[#25D366] hover:bg-[#20ba5a] text-white p-3 md:px-5 md:py-3 rounded-full shadow-2xl transition-all duration-300 hover:scale-105 active:scale-95 font-bold group",
+          hasActiveModal && "opacity-0 pointer-events-none scale-90 invisible"
+        )}
       >
         <MessageCircle className="w-6 h-6" />
         <span className="hidden md:inline max-w-0 overflow-hidden group-hover:max-w-xs transition-all duration-500 ease-in-out whitespace-nowrap">

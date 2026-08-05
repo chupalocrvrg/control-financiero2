@@ -475,8 +475,8 @@ export default function Collections() {
 
       {/* Modal Form */}
       {isModalOpen && (
-        <div key="collections-modal-overlay" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm overflow-y-auto">
-          <div className="bg-white dark:bg-neutral-900 rounded-2xl w-full max-w-2xl shadow-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden animate-in zoom-in-95 duration-200 my-8">
+        <div key="collections-modal-overlay" className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-neutral-900 rounded-3xl w-full max-w-2xl shadow-2xl border border-neutral-200 dark:border-neutral-800 overflow-hidden animate-in zoom-in-95 duration-200 my-auto">
             <div className="flex items-center justify-between p-6 border-b border-neutral-200 dark:border-neutral-800">
               <h2 className="text-xl font-bold text-neutral-900 dark:text-white flex items-center gap-2">
                 <Receipt className="w-5 h-5 text-indigo-500" />
@@ -485,7 +485,7 @@ export default function Collections() {
               <button 
                 type="button"
                 onClick={() => setIsModalOpen(false)}
-                className="text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors"
+                className="p-1.5 rounded-full text-neutral-400 hover:text-neutral-700 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>

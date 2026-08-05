@@ -1,5 +1,5 @@
 import { db } from '../firebase';
-import { collection, getDocs, getDoc, setDoc, doc } from 'firebase/firestore';
+import { collection, getDocs, getDoc, setDoc, doc, deleteDoc } from 'firebase/firestore';
 
 export interface ChangelogRelease {
   version: string;
@@ -11,56 +11,14 @@ export interface ChangelogRelease {
 
 export const staticChangelog: ChangelogRelease[] = [
   {
-    version: "4.28.1",
-    date: new Date().toISOString(),
+    version: "4.30.0",
+    date: new Date().toISOString().split('T')[0],
     changes: [
-      "Optimización de Consultas de Empleados en Pestaña de Ventas/Inventario: Se aplicó un filtro estricto por `enterpriseId` en `SalesTab.tsx` para garantizar un aislamiento multicuentas riguroso de vendedores en todos los módulos."
-    ]
-  },
-  {
-    version: "4.28.0",
-    date: new Date().toISOString(),
-    changes: [
-      "Asignación Directa y Eliminación de Migración Automática de Empleados: Se eliminó el script de inicio que reasignaba automáticamente los empleados a Almacenes Derick. A partir de esta versión, todo empleado registrado por una empresa mantendrá su asignación directa a la empresa creadora sin requerir intervención del Superadministrador."
-    ]
-  },
-  {
-    version: "4.27.4",
-    date: new Date().toISOString(),
-    changes: [
-      "Filtrado por Empresa en Consulta de Presupuestos (Employees): Se incluyó la restricción `where('enterpriseId', '==', targetEntId)` en la consulta de presupuestos del módulo de Empleados y la asignación del ID de empresa al guardar, resolviendo el error de permisos 'Missing or insufficient permissions'."
-    ]
-  },
-  {
-    version: "4.27.3",
-    date: new Date().toISOString(),
-    changes: [
-      "Exportación e Inyección Global de isSuperAdmin en Contexto de Autenticación: Se añadió la propiedad 'isSuperAdmin' al AuthContext para asegurar su disponibilidad en el Layout principal y resolver la excepción en tiempo de ejecución de variable no definida."
-    ]
-  },
-  {
-    version: "4.27.2",
-    date: new Date().toISOString(),
-    changes: [
-      "Protección de Permisos Firestore en Consultas de Empleados: Se restringió la consulta directa sobre la colección 'users' únicamente para cuentas SuperAdmin o bajo captura segura de excepciones. Esto resuelve los errores de permisos (Missing or insufficient permissions) al cargar la lista de personal y presupuestos con cuentas regulares."
-    ]
-  },
-  {
-    version: "4.27.1",
-    date: new Date().toISOString(),
-    changes: [
-      "Manejo Silencioso de Cierre de Ventana Google Auth: Se capturó adecuadamente el evento 'auth/popup-closed-by-user' para evitar mostrar errores o banners no deseados cuando el usuario cancela o cierra la ventana emergente de autenticación."
-    ]
-  },
-  {
-    version: "4.27.0",
-    date: new Date().toISOString(),
-    changes: [
-      "Migración de Empleados Existentes a Almacenes Derick: Todos los empleados registrados con anterioridad en el sistema fueron asignados y vinculados automáticamente a la empresa matriz 'Almacenes Derick'.",
-      "Regla de Registro por Correo como Empresa Independiente: Todo nuevo usuario que se registra mediante correo electrónico es configurado de forma predeterminada como una Empresa independiente.",
-      "Asistente Guiado de Vinculación (SuperAdmin): Incorporación de un Wizard modal de 4 pasos en Administración de Usuarios que permite al SuperAdministrador convertir y asignar usuarios registrados por correo como empleados con cargo específico a una empresa matriz.",
-      "Creación Interna de Empleados por Empresas: Las empresas pueden crear sus propios empleados directamente en la plataforma (sin requerir correo electrónico) quedando asignados automáticamente a su cuenta.",
-      "Unificación de Listas y Coexistencia Operativa: Integración unificada de empleados internos y vinculados por correo en los módulos de Directorio Comercial y Presupuestos Mensuales."
+      "Manejo Amigable de Errores de Caché / Versión: Se implementó la detección automática de inconsistencias de carga de módulos (chunks) tras despliegues de actualización en ErrorBoundary, mostrando una notificación clara y un botón de actualización profunda del sistema.",
+      "Aislamiento Multicuentas y Filtro Estricto de Empleados: Aplicación de filtro por empresa (`enterpriseId`) en los módulos de Empleados, Presupuestos y Ventas/Inventario, garantizando que cada empresa visualice única y exclusivamente su personal.",
+      "Asignación Directa de Empleados por Empresa: Registro directo e independiente de empleados por cada cuenta sin reasignaciones automáticas ni intermediación.",
+      "Gestión de Permisos y AuthContext: Inyección global de `isSuperAdmin` en el contexto de autenticación y protección de consultas sobre colecciones restringidas en Firestore.",
+      "Asistente Guiado de Vinculación y Coexistencia Operativa: Incorporación de Wizard modal para vinculación de usuarios por correo a empresas matriz y unificación de personal en el Directorio Comercial."
     ]
   },
   {
@@ -860,6 +818,21 @@ export async function getDynamicVersions(): Promise<ChangelogRelease[]> {
     
     snapshot.forEach((docSnap) => {
       const data = docSnap.data();
+      const versionId = docSnap.id;
+      const cleanVer = versionId.replace(/^[Vv]/, '').trim();
+
+      // Clean up obsolete test or intermediate records (e.g., V5.x or V4.27.x/V4.28.x/V4.3.0 superseded by V4.30.0)
+      if (
+        cleanVer.startsWith('5.') ||
+        cleanVer.startsWith('4.27.') ||
+        cleanVer.startsWith('4.28.') ||
+        cleanVer.startsWith('4.29.') ||
+        cleanVer === '4.3.0'
+      ) {
+        deleteDoc(doc(db, 'versions', versionId)).catch(() => {});
+        return;
+      }
+
       firestoreVersions.push({
         version: docSnap.id,
         date: data.date || new Date().toISOString().split('T')[0],

@@ -41,28 +41,42 @@ export class ErrorBoundary extends Component<Props, State> {
 
   public render() {
     if (this.state.hasError) {
+      const isDomError = this.state.error?.message?.includes('insertBefore') || 
+                         this.state.error?.message?.includes('removeChild') || 
+                         this.state.error?.message?.includes('Node');
+
       return (
         <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950 flex flex-col items-center justify-center p-8 text-center transition-colors">
           <div className="bg-white dark:bg-neutral-900 p-8 rounded-3xl shadow-2xl max-w-md w-full border border-neutral-200 dark:border-neutral-800">
             <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-500 rounded-full flex items-center justify-center mx-auto mb-6">
               <AlertTriangle className="w-8 h-8" />
             </div>
-            <h2 className="text-2xl font-bold text-neutral-900 dark:text-white tracking-tight mb-4">Algo salió mal</h2>
-            <p className="text-neutral-500 dark:text-neutral-400 text-sm mb-8">
-              Ha ocurrido un error inesperado. Hemos notificado al administrador. Puedes intentar recargar la página.
+            <h2 className="text-2xl font-bold text-neutral-900 dark:text-white tracking-tight mb-2">Algo salió mal</h2>
+            <p className="text-neutral-500 dark:text-neutral-400 text-sm mb-6">
+              {isDomError 
+                ? 'Se detectó un conflicto de traducción automática del navegador o actualización de pantalla. Puedes reintentar directamente.' 
+                : 'Ha ocurrido un error inesperado. Puedes intentar reintentar la acción o recargar la página.'}
             </p>
-            <div className="bg-neutral-100 dark:bg-neutral-800 p-4 rounded-xl text-left mb-8 overflow-auto max-h-32">
+            <div className="bg-neutral-100 dark:bg-neutral-800 p-4 rounded-xl text-left mb-6 overflow-auto max-h-32">
               <p className="text-xs font-mono text-red-600 dark:text-red-400 break-words">
                 {this.state.error?.message || "Error desconocido"}
               </p>
             </div>
-            <button 
-              onClick={() => window.location.reload()}
-              className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition-all shadow-lg shadow-indigo-200 dark:shadow-none"
-            >
-              <RefreshCcw className="w-5 h-5" />
-              Recargar Página
-            </button>
+            <div className="flex flex-col gap-3">
+              <button 
+                onClick={() => this.setState({ hasError: false, error: undefined })}
+                className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition-all shadow-md shadow-indigo-200 dark:shadow-none"
+              >
+                <RefreshCcw className="w-5 h-5" />
+                <span>Reintentar Acción</span>
+              </button>
+              <button 
+                onClick={() => window.location.reload()}
+                className="w-full flex items-center justify-center gap-2 px-6 py-2.5 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 font-medium rounded-xl transition-all text-sm"
+              >
+                <span>Recargar Página Completa</span>
+              </button>
+            </div>
           </div>
         </div>
       );

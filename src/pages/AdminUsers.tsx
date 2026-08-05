@@ -7,11 +7,12 @@ import { collection, getDocs, getDoc, doc, updateDoc, query, where, orderBy, del
 import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
 import { formatCurrency, cn, hashPin } from '../lib/utils';
 import { format, parseISO, addDays, addMonths, addYears } from 'date-fns';
-import { Users, User, Shield, Calendar, Eye, Ban, CheckCircle, Search, Edit3, X, Download, ShieldCheck, Mail, Clock, Lock, Trash2, Plus, ArrowRight, RotateCcw, AlertTriangle } from 'lucide-react';
+import { Users, User, Shield, Calendar, Eye, Ban, CheckCircle, Search, Edit3, X, Download, ShieldCheck, Mail, Clock, Lock, Trash2, Plus, ArrowRight, RotateCcw, AlertTriangle, Sparkles, Building2, Briefcase, ChevronRight, Check, UserPlus } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { getDynamicVersions, ChangelogRelease } from '../lib/changelog';
 import { logAudit, AuditAction } from '../lib/audit';
 import { isSuperAdminEmail } from '../lib/utils';
+import { getDerickEnterpriseUid, syncLinkedUserToEmployees, migrateAllEmployeesToDerick } from '../lib/enterprise';
 
 interface UserData {
   id: string;
@@ -83,6 +84,98 @@ export default function AdminUsers({ mode = "USERS" }: { mode?: "USERS" | "HISTO
   // Checks/Expenses Migration to Almacenes Derick States
   const [migratingChecks, setMigratingChecks] = useState(false);
   const [unassignedChecksCount, setUnassignedChecksCount] = useState<number | null>(null);
+
+  // Visual Wizard Linking Tool States
+  const [showLinkWizardModal, setShowLinkWizardModal] = useState(false);
+  const [wizardStep, setWizardStep] = useState<number>(1);
+  const [wizardSelectedUserId, setWizardSelectedUserId] = useState<string>('');
+  const [wizardTargetEnterpriseId, setWizardTargetEnterpriseId] = useState<string>('');
+  const [wizardEmployeeRole, setWizardEmployeeRole] = useState<'vendedor' | 'cobrador' | 'ambos' | 'supervisor_ventas' | 'supervisor_cobranza' | 'supervisor_general' | 'BODEGUERO'>('vendedor');
+  const [wizardName, setWizardName] = useState<string>('');
+  const [wizardLastName, setWizardLastName] = useState<string>('');
+  const [wizardSearch, setWizardSearch] = useState<string>('');
+  const [executingWizardLink, setExecutingWizardLink] = useState(false);
+
+  const handleOpenWizard = async () => {
+    setWizardStep(1);
+    setWizardSelectedUserId('');
+    setWizardSearch('');
+    setWizardEmployeeRole('vendedor');
+    setWizardName('');
+    setWizardLastName('');
+    
+    // Default target enterprise to Almacenes Derick
+    const derickId = await getDerickEnterpriseUid();
+    setWizardTargetEnterpriseId(derickId);
+    setShowLinkWizardModal(true);
+  };
+
+  const handleExecuteWizardLink = async () => {
+    if (!wizardSelectedUserId || !wizardTargetEnterpriseId) {
+      showToast('Por favor seleccione un usuario registrado y una empresa de destino.', 'error');
+      return;
+    }
+
+    const targetUser = users.find(u => u.id === wizardSelectedUserId);
+    const targetCompany = users.find(u => u.id === wizardTargetEnterpriseId);
+    if (!targetUser || !targetCompany) return;
+
+    try {
+      setExecutingWizardLink(true);
+      const userRef = doc(db, 'users', targetUser.id);
+
+      const newRole = wizardEmployeeRole === 'BODEGUERO' ? 'BODEGUERO' : 'employee';
+      await updateDoc(userRef, {
+        role: newRole,
+        enterpriseId: wizardTargetEnterpriseId,
+        name: wizardName.trim() || targetUser.name || 'Empleado'
+      });
+
+      if (newRole === 'employee') {
+        await syncLinkedUserToEmployees(
+          targetUser.id,
+          targetUser.email,
+          wizardName.trim() || targetUser.name || 'Empleado',
+          wizardLastName.trim(),
+          wizardTargetEnterpriseId,
+          wizardEmployeeRole as any
+        );
+      }
+
+      await loadUsers();
+      logAudit(
+        AuditAction.SETTINGS_UPDATE,
+        `ASISTENTE WIZARD: Se vinculó exitosamente a ${targetUser.email} como Empleado (${wizardEmployeeRole}) de la empresa ${targetCompany.name} (ID: ${wizardTargetEnterpriseId}).`
+      );
+
+      showToast(`¡Cuenta ${targetUser.email} vinculada exitosamente como Empleado de ${targetCompany.name}!`, 'success');
+      setShowLinkWizardModal(false);
+    } catch (err: any) {
+      console.error('Error al ejecutar vinculación wizard:', err);
+      showToast('Error al vincular empleado: ' + err.message, 'error');
+    } finally {
+      setExecutingWizardLink(false);
+    }
+  };
+
+  const handleUnlinkUserToIndependentEnterprise = async (userData: UserData) => {
+    if (await showConfirm('Desvincular Cuenta', `¿Desea desvincular a "${userData.name}" de su empresa actual y restablecerla como una Empresa Independiente libre?`, { type: 'warning' })) {
+      try {
+        setLoading(true);
+        const userRef = doc(db, 'users', userData.id);
+        await updateDoc(userRef, {
+          role: 'enterprise',
+          enterpriseId: userData.id
+        });
+        await loadUsers();
+        showToast(`La cuenta "${userData.name}" ahora es una Empresa Independiente autónoma.`, 'success');
+      } catch (err: any) {
+        showToast('Error al desvincular: ' + err.message, 'error');
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
 
   useEffect(() => {
     if (isSuperAdmin) {
@@ -1497,6 +1590,28 @@ export default function AdminUsers({ mode = "USERS" }: { mode?: "USERS" | "HISTO
 
       {activeTab === 'ENTITIES' && (
         <div className="space-y-8 animate-in fade-in duration-500">
+          {/* Main Wizard Banner */}
+          <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-purple-900 text-white rounded-[2.5rem] p-8 lg:p-10 shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-6 relative overflow-hidden">
+            <div className="absolute right-0 top-0 translate-x-12 -translate-y-12 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
+            <div className="space-y-2 max-w-2xl relative z-10">
+              <span className="px-3.5 py-1 bg-white/10 text-yellow-300 text-[10px] font-black uppercase tracking-widest rounded-full border border-yellow-300/30 flex items-center gap-1.5 w-fit">
+                <Sparkles className="w-3.5 h-3.5 text-yellow-300" /> Asistente Paso a Paso Recomendado
+              </span>
+              <h2 className="text-2xl lg:text-3xl font-black uppercase tracking-tight">
+                Vinculación Visual de Empleados por Correo
+              </h2>
+              <p className="text-indigo-100/80 text-sm leading-relaxed">
+                Asistente guiado para seleccionar cualquier usuario registrado con correo electrónico, asignarle su empresa matriz (Almacenes Derick por defecto) y definir su cargo operativo (Vendedor, Cobrador, Ambos, Supervisor, Bodeguero).
+              </p>
+            </div>
+            <button
+              onClick={handleOpenWizard}
+              className="px-8 py-5 bg-yellow-400 hover:bg-yellow-300 text-neutral-950 font-black rounded-2xl text-xs uppercase tracking-wider transition-all shadow-xl hover:scale-105 active:scale-95 flex items-center gap-3 shrink-0 cursor-pointer relative z-10"
+            >
+              <UserPlus className="w-5 h-5 text-neutral-950" /> Abrir Asistente de Vinculación
+            </button>
+          </div>
+
           {/* Header Action cards */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="bg-white dark:bg-neutral-900 rounded-[2.5rem] border border-neutral-100 dark:border-neutral-800 p-8 shadow-sm flex flex-col justify-between">
@@ -1750,19 +1865,30 @@ export default function AdminUsers({ mode = "USERS" }: { mode?: "USERS" | "HISTO
                             })()}
                           </td>
                           <td className="px-8 py-4 text-right">
-                            <button
-                              onClick={() => {
-                                setEditingEntityUser(u);
-                                setEntityFormData({
-                                  role: (u as any).role || 'enterprise',
-                                  enterpriseId: (u as any).enterpriseId || ''
-                                });
-                                setShowEntityModal(true);
-                              }}
-                              className="px-4 py-2 bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-200 text-xs font-black uppercase rounded-xl transition-all"
-                            >
-                              Relacionar
-                            </button>
+                            <div className="flex justify-end items-center gap-2">
+                              <button
+                                onClick={() => {
+                                  setEditingEntityUser(u);
+                                  setEntityFormData({
+                                    role: (u as any).role || 'enterprise',
+                                    enterpriseId: (u as any).enterpriseId || ''
+                                  });
+                                  setShowEntityModal(true);
+                                }}
+                                className="px-4 py-2 bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-200 text-xs font-black uppercase rounded-xl transition-all"
+                              >
+                                Relacionar
+                              </button>
+                              {((u as any).role === 'employee' || (u as any).role === 'BODEGUERO') && (
+                                <button
+                                  onClick={() => handleUnlinkUserToIndependentEnterprise(u)}
+                                  className="px-3 py-2 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-600 dark:text-rose-400 text-xs font-black uppercase rounded-xl transition-all"
+                                  title="Desvincular y convertir en Empresa Independiente libre"
+                                >
+                                  Desvincular
+                                </button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1840,6 +1966,336 @@ export default function AdminUsers({ mode = "USERS" }: { mode?: "USERS" | "HISTO
                       Guardar Relación
                     </button>
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Interactive Guided Link Wizard Modal */}
+          {showLinkWizardModal && (
+            <div className="fixed inset-0 bg-neutral-900/60 backdrop-blur-md z-[1100] flex items-center justify-center p-4">
+              <div className="bg-white dark:bg-neutral-900 w-full max-w-2xl rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 border border-neutral-100 dark:border-neutral-800">
+                {/* Wizard Header */}
+                <div className="p-8 bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-700 text-white flex justify-between items-center">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="px-3 py-1 bg-white/20 text-white text-[10px] font-black uppercase tracking-widest rounded-full">
+                        Paso {wizardStep} de 4
+                      </span>
+                      <span className="text-xs text-indigo-100 font-bold uppercase tracking-wider">Asistente de Vinculación</span>
+                    </div>
+                    <h2 className="text-2xl font-black uppercase tracking-tight mt-1 flex items-center gap-2">
+                      <Sparkles className="w-6 h-6 text-yellow-300" /> Vinculación de Empleados por Correo
+                    </h2>
+                  </div>
+                  <button onClick={() => setShowLinkWizardModal(false)} className="text-white/80 hover:text-white p-2 rounded-full hover:bg-white/10 transition-all">
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
+
+                {/* Progress bar */}
+                <div className="w-full bg-neutral-100 dark:bg-neutral-800 h-1.5">
+                  <div className="bg-indigo-600 h-1.5 transition-all duration-300" style={{ width: `${(wizardStep / 4) * 100}%` }}></div>
+                </div>
+
+                {/* Wizard Content */}
+                <div className="p-8 space-y-6">
+                  {/* STEP 1: Seleccionar Usuario por Correo */}
+                  {wizardStep === 1 && (
+                    <div className="space-y-4 animate-in fade-in duration-200">
+                      <div>
+                        <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-50 flex items-center gap-2">
+                          <Mail className="w-5 h-5 text-indigo-500" /> Paso 1: Seleccionar Usuario Registrado
+                        </h3>
+                        <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
+                          Seleccione la cuenta registrada por correo electrónico que desea designar como empleado de una empresa.
+                        </p>
+                      </div>
+
+                      <div className="relative">
+                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
+                        <input
+                          type="text"
+                          placeholder="Buscar por correo o nombre..."
+                          value={wizardSearch}
+                          onChange={(e) => setWizardSearch(e.target.value)}
+                          className="w-full pl-11 pr-4 py-3 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-2xl text-xs font-medium outline-none focus:ring-2 focus:ring-indigo-500 text-neutral-900 dark:text-neutral-50"
+                        />
+                      </div>
+
+                      <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
+                        {users
+                          .filter(u => 
+                            !wizardSearch ||
+                            u.email?.toLowerCase().includes(wizardSearch.toLowerCase()) ||
+                            u.name?.toLowerCase().includes(wizardSearch.toLowerCase())
+                          )
+                          .map(u => {
+                            const isSelected = wizardSelectedUserId === u.id;
+                            const currentRole = (u as any).role;
+                            const parentEnt = (u as any).enterpriseId ? users.find(ent => ent.id === (u as any).enterpriseId) : null;
+
+                            return (
+                              <div
+                                key={u.id}
+                                onClick={() => {
+                                  setWizardSelectedUserId(u.id);
+                                  setWizardName(u.name || '');
+                                }}
+                                className={cn(
+                                  "p-4 rounded-2xl border cursor-pointer transition-all flex justify-between items-center",
+                                  isSelected
+                                    ? "bg-indigo-50/80 dark:bg-indigo-950/40 border-indigo-500 shadow-md ring-2 ring-indigo-500/20"
+                                    : "bg-white dark:bg-neutral-800/40 border-neutral-100 dark:border-neutral-800 hover:border-neutral-300 dark:hover:border-neutral-700"
+                                )}
+                              >
+                                <div>
+                                  <div className="text-sm font-bold text-neutral-900 dark:text-neutral-50 uppercase flex items-center gap-2">
+                                    {u.name || 'Sin nombre'}
+                                    {isSelected && <CheckCircle className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />}
+                                  </div>
+                                  <div className="text-xs text-neutral-500 dark:text-neutral-400 font-mono mt-0.5">{u.email}</div>
+                                </div>
+
+                                <div className="text-right">
+                                  {currentRole === 'employee' ? (
+                                    <span className="px-2.5 py-1 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 text-[10px] font-black rounded-full uppercase">
+                                      Empleado ({parentEnt ? parentEnt.name : 'Asignado'})
+                                    </span>
+                                  ) : currentRole === 'BODEGUERO' ? (
+                                    <span className="px-2.5 py-1 bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 text-[10px] font-black rounded-full uppercase">
+                                      Bodeguero
+                                    </span>
+                                  ) : (
+                                    <span className="px-2.5 py-1 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 text-[10px] font-black rounded-full uppercase">
+                                      Empresa Libre
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </div>
+
+                      <div className="flex justify-end pt-4">
+                        <button
+                          disabled={!wizardSelectedUserId}
+                          onClick={() => setWizardStep(2)}
+                          className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-neutral-200 dark:disabled:bg-neutral-800 text-white rounded-2xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer"
+                        >
+                          Siguiente: Seleccionar Empresa <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* STEP 2: Seleccionar Empresa Matriz */}
+                  {wizardStep === 2 && (
+                    <div className="space-y-4 animate-in fade-in duration-200">
+                      <div>
+                        <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-50 flex items-center gap-2">
+                          <Building2 className="w-5 h-5 text-indigo-500" /> Paso 2: Seleccionar Empresa Matriz
+                        </h3>
+                        <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
+                          Seleccione la empresa a la que pertenecerá y trabajará este usuario. (Por defecto: Almacenes Derick).
+                        </p>
+                      </div>
+
+                      <div className="space-y-2 max-h-60 overflow-y-auto">
+                        {users
+                          .filter(u => u.role === 'enterprise')
+                          .map(ent => {
+                            const isSelected = wizardTargetEnterpriseId === ent.id;
+                            const isDerick = ent.name?.toLowerCase().includes('derick') || ent.email?.toLowerCase().includes('derick');
+
+                            return (
+                              <div
+                                key={ent.id}
+                                onClick={() => setWizardTargetEnterpriseId(ent.id)}
+                                className={cn(
+                                  "p-4 rounded-2xl border cursor-pointer transition-all flex justify-between items-center",
+                                  isSelected
+                                    ? "bg-indigo-50/80 dark:bg-indigo-950/40 border-indigo-500 shadow-md ring-2 ring-indigo-500/20"
+                                    : "bg-white dark:bg-neutral-800/40 border-neutral-100 dark:border-neutral-800 hover:border-neutral-300 dark:hover:border-neutral-700"
+                                )}
+                              >
+                                <div>
+                                  <div className="text-sm font-bold text-neutral-900 dark:text-neutral-50 uppercase flex items-center gap-2">
+                                    {ent.name}
+                                    {isDerick && <span className="px-2 py-0.5 bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200 text-[9px] font-black rounded uppercase">Principal Recomendado</span>}
+                                    {isSelected && <CheckCircle className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />}
+                                  </div>
+                                  <div className="text-xs text-neutral-500 dark:text-neutral-400 font-mono mt-0.5">{ent.email}</div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </div>
+
+                      <div className="flex justify-between pt-4 border-t border-neutral-100 dark:border-neutral-800">
+                        <button
+                          onClick={() => setWizardStep(1)}
+                          className="px-6 py-3 bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-200 rounded-2xl text-xs font-black uppercase tracking-wider transition-all"
+                        >
+                          Atrás
+                        </button>
+                        <button
+                          disabled={!wizardTargetEnterpriseId}
+                          onClick={() => setWizardStep(3)}
+                          className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-neutral-200 dark:disabled:bg-neutral-800 text-white rounded-2xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer"
+                        >
+                          Siguiente: Cargo Operativo <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* STEP 3: Definir Cargo Operativo */}
+                  {wizardStep === 3 && (
+                    <div className="space-y-4 animate-in fade-in duration-200">
+                      <div>
+                        <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-50 flex items-center gap-2">
+                          <Briefcase className="w-5 h-5 text-indigo-500" /> Paso 3: Definir Cargo Operativo
+                        </h3>
+                        <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
+                          Defina la función del empleado para que se muestre en los módulos correspondientes (Ventas, Cobranza, Presupuestos).
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        {[
+                          { id: 'vendedor', title: 'Vendedor', desc: 'Acceso a ventas y metas de ventas' },
+                          { id: 'cobrador', title: 'Cobrador', desc: 'Acceso a cobranza y metas de recaudo' },
+                          { id: 'ambos', title: 'Vendedor y Cobrador', desc: 'Acceso dual a ventas y cobranzas' },
+                          { id: 'supervisor_ventas', title: 'Supervisor Ventas', desc: 'Gestión y supervisión de fuerza de ventas' },
+                          { id: 'supervisor_cobranza', title: 'Supervisor Cobranza', desc: 'Supervisión de cartera y cobradores' },
+                          { id: 'supervisor_general', title: 'Supervisor General', desc: 'Supervisión completa operacional' },
+                          { id: 'BODEGUERO', title: 'Bodeguero', desc: 'Gestión exclusiva de almacén e inventario' },
+                        ].map(r => {
+                          const isSelected = wizardEmployeeRole === r.id;
+                          return (
+                            <div
+                              key={r.id}
+                              onClick={() => setWizardEmployeeRole(r.id as any)}
+                              className={cn(
+                                "p-3.5 rounded-2xl border cursor-pointer transition-all",
+                                isSelected
+                                  ? "bg-indigo-50/80 dark:bg-indigo-950/40 border-indigo-500 shadow-md ring-2 ring-indigo-500/20"
+                                  : "bg-white dark:bg-neutral-800/40 border-neutral-100 dark:border-neutral-800 hover:border-neutral-300 dark:hover:border-neutral-700"
+                              )}
+                            >
+                              <div className="text-xs font-bold text-neutral-900 dark:text-neutral-50 uppercase flex items-center justify-between">
+                                {r.title}
+                                {isSelected && <Check className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />}
+                              </div>
+                              <div className="text-[10px] text-neutral-400 mt-1 leading-tight">{r.desc}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4 pt-2">
+                        <div>
+                          <label className="text-[10px] font-black text-neutral-400 uppercase tracking-widest block mb-1">Nombre</label>
+                          <input
+                            type="text"
+                            value={wizardName}
+                            onChange={(e) => setWizardName(e.target.value)}
+                            placeholder="Nombre..."
+                            className="w-full bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-2.5 text-xs font-medium text-neutral-900 dark:text-neutral-50 outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-black text-neutral-400 uppercase tracking-widest block mb-1">Apellido</label>
+                          <input
+                            type="text"
+                            value={wizardLastName}
+                            onChange={(e) => setWizardLastName(e.target.value)}
+                            placeholder="Apellido..."
+                            className="w-full bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl px-4 py-2.5 text-xs font-medium text-neutral-900 dark:text-neutral-50 outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex justify-between pt-4 border-t border-neutral-100 dark:border-neutral-800">
+                        <button
+                          onClick={() => setWizardStep(2)}
+                          className="px-6 py-3 bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-200 rounded-2xl text-xs font-black uppercase tracking-wider transition-all"
+                        >
+                          Atrás
+                        </button>
+                        <button
+                          onClick={() => setWizardStep(4)}
+                          className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer"
+                        >
+                          Siguiente: Confirmar <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* STEP 4: Confirmación y Resumen */}
+                  {wizardStep === 4 && (
+                    <div className="space-y-6 animate-in fade-in duration-200">
+                      <div>
+                        <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-50 flex items-center gap-2">
+                          <ShieldCheck className="w-5 h-5 text-emerald-500" /> Paso 4: Resumen de Vinculación
+                        </h3>
+                        <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
+                          Revise los parámetros antes de aplicar la asociación definitiva del empleado a la empresa.
+                        </p>
+                      </div>
+
+                      {(() => {
+                        const selectedUser = users.find(u => u.id === wizardSelectedUserId);
+                        const targetCompany = users.find(u => u.id === wizardTargetEnterpriseId);
+
+                        return (
+                          <div className="bg-neutral-50 dark:bg-neutral-800/50 p-6 rounded-3xl border border-neutral-100 dark:border-neutral-700/60 space-y-4">
+                            <div className="grid grid-cols-2 gap-4 border-b border-neutral-200 dark:border-neutral-700/60 pb-4">
+                              <div>
+                                <span className="text-[10px] font-black text-neutral-400 uppercase tracking-widest block">Usuario a Vincular</span>
+                                <div className="text-sm font-bold text-neutral-900 dark:text-neutral-50 mt-1 uppercase">{wizardName || selectedUser?.name || 'Empleado'} {wizardLastName}</div>
+                                <div className="text-xs text-neutral-500 dark:text-neutral-400 font-mono mt-0.5">{selectedUser?.email}</div>
+                              </div>
+                              <div>
+                                <span className="text-[10px] font-black text-neutral-400 uppercase tracking-widest block">Empresa Matriz</span>
+                                <div className="text-sm font-bold text-indigo-600 dark:text-indigo-400 mt-1 uppercase">{targetCompany?.name}</div>
+                                <div className="text-xs text-neutral-500 dark:text-neutral-400 font-mono mt-0.5">{targetCompany?.email}</div>
+                              </div>
+                            </div>
+
+                            <div>
+                              <span className="text-[10px] font-black text-neutral-400 uppercase tracking-widest block">Cargo Asignado</span>
+                              <span className="inline-block px-3 py-1 bg-indigo-600 text-white text-xs font-black rounded-full uppercase mt-1">
+                                {wizardEmployeeRole}
+                              </span>
+                            </div>
+
+                            <p className="text-[11px] text-neutral-500 dark:text-neutral-400 italic">
+                              * Al confirmar, la cuenta pasará a ser visible en las listas de la empresa y los módulos de Personal, Presupuestos y Operaciones de forma unificada.
+                            </p>
+                          </div>
+                        );
+                      })()}
+
+                      <div className="flex justify-between pt-4 border-t border-neutral-100 dark:border-neutral-800">
+                        <button
+                          onClick={() => setWizardStep(3)}
+                          className="px-6 py-3 bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-200 rounded-2xl text-xs font-black uppercase tracking-wider transition-all"
+                        >
+                          Atrás
+                        </button>
+                        <button
+                          disabled={executingWizardLink}
+                          onClick={handleExecuteWizardLink}
+                          className="px-8 py-3.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-2xl text-xs font-black uppercase tracking-wider transition-all shadow-lg flex items-center gap-2 cursor-pointer"
+                        >
+                          <CheckCircle className="w-5 h-5" /> {executingWizardLink ? "Vinculando..." : "Confirmar Vinculación"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

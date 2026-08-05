@@ -231,5 +231,10 @@ service cloud.firestore {
       allow create: if true; // Allow client-side error reporting
       allow read, update, delete: if isAdmin();
     }
+
+    match /buro_logs/{id} {
+      allow read, delete: if isVerified() && isEnterpriseData(resource.data);
+      allow create, update: if isVerified() && isEnterpriseData(incoming());
+    }
   }
 }

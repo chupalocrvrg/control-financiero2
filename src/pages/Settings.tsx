@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useNotification } from '../contexts/NotificationContext';
 import { db } from '../firebase';
-import { doc, getDoc, updateDoc, collection, getDocs, writeBatch } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, collection, getDocs, writeBatch, query, where } from 'firebase/firestore';
 import { storage } from '../firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
@@ -316,6 +316,38 @@ export default function Settings() {
       : (profile?.role === 'enterprise' ? user?.uid : (profile?.enterpriseId || user?.uid || ''));
     if (!tenantId) throw new Error("No hay un identificador de empresa/inquilino activo");
 
+    const fetchCollection = async (colName: string) => {
+      const colRef = collection(db, colName);
+      const qEnt = query(colRef, where('enterpriseId', '==', tenantId));
+      const qUser = query(colRef, where('userId', '==', tenantId));
+      
+      const [snapEnt, snapUser] = await Promise.all([
+        getDocs(qEnt).catch(() => ({ docs: [] })),
+        getDocs(qUser).catch(() => ({ docs: [] }))
+      ]);
+
+      const itemMap = new Map<string, any>();
+      snapEnt.docs?.forEach((d: any) => itemMap.set(d.id, { id: d.id, ...d.data() }));
+      snapUser.docs?.forEach((d: any) => itemMap.set(d.id, { id: d.id, ...d.data() }));
+
+      // Admin fallback if structured query returned empty
+      if (itemMap.size === 0) {
+        try {
+          const snapAll = await getDocs(colRef);
+          snapAll.docs?.forEach((d: any) => {
+            const data = d.data();
+            if (data.enterpriseId === tenantId || data.userId === tenantId) {
+              itemMap.set(d.id, { id: d.id, ...data });
+            }
+          });
+        } catch (_) {
+          // Ignore permission error if not admin or constrained
+        }
+      }
+
+      return Array.from(itemMap.values());
+    };
+
     const [
       employees,
       checks,
@@ -331,39 +363,35 @@ export default function Settings() {
       transfers,
       inventory_sales
     ] = await Promise.all([
-      getDocs(collection(db, 'employees')),
-      getDocs(collection(db, 'checks')),
-      getDocs(collection(db, 'sales')),
-      getDocs(collection(db, 'collections')),
-      getDocs(collection(db, 'articles')),
-      getDocs(collection(db, 'invoices')),
-      getDocs(collection(db, 'beneficiaries')),
-      getDocs(collection(db, 'budgets')),
-      getDocs(collection(db, 'warehouses')),
-      getDocs(collection(db, 'warehouse_inventory')),
-      getDocs(collection(db, 'loans_returns')),
-      getDocs(collection(db, 'transfers')),
-      getDocs(collection(db, 'inventory_sales')),
+      fetchCollection('employees'),
+      fetchCollection('checks'),
+      fetchCollection('sales'),
+      fetchCollection('collections'),
+      fetchCollection('articles'),
+      fetchCollection('invoices'),
+      fetchCollection('beneficiaries'),
+      fetchCollection('budgets'),
+      fetchCollection('warehouses'),
+      fetchCollection('warehouse_inventory'),
+      fetchCollection('loans_returns'),
+      fetchCollection('transfers'),
+      fetchCollection('inventory_sales'),
     ]);
 
-    const filterByTenant = (list: any[]) => {
-      return list.filter(d => d.enterpriseId === tenantId || d.userId === tenantId);
-    };
-
     return {
-      employees: filterByTenant(employees.docs.map(d => ({id: d.id, ...(d.data() as any)}))),
-      checks: filterByTenant(checks.docs.map(d => ({id: d.id, ...(d.data() as any)}))),
-      sales: filterByTenant(sales.docs.map(d => ({id: d.id, ...(d.data() as any)}))),
-      collections: filterByTenant(collections.docs.map(d => ({id: d.id, ...(d.data() as any)}))),
-      inventory: filterByTenant(articles.docs.map(d => ({id: d.id, ...(d.data() as any)}))),
-      invoices: filterByTenant(invoices.docs.map(d => ({id: d.id, ...(d.data() as any)}))),
-      beneficiaries: filterByTenant(beneficiaries.docs.map(d => ({id: d.id, ...(d.data() as any)}))),
-      budgets: filterByTenant(budgets.docs.map(d => ({id: d.id, ...(d.data() as any)}))),
-      warehouses: filterByTenant(warehouses.docs.map(d => ({id: d.id, ...(d.data() as any)}))),
-      warehouse_inventory: filterByTenant(warehouse_inventory.docs.map(d => ({id: d.id, ...(d.data() as any)}))),
-      loans_returns: filterByTenant(loans_returns.docs.map(d => ({id: d.id, ...(d.data() as any)}))),
-      transfers: filterByTenant(transfers.docs.map(d => ({id: d.id, ...(d.data() as any)}))),
-      inventory_sales: filterByTenant(inventory_sales.docs.map(d => ({id: d.id, ...(d.data() as any)}))),
+      employees,
+      checks,
+      sales,
+      collections,
+      inventory: articles,
+      invoices,
+      beneficiaries,
+      budgets,
+      warehouses,
+      warehouse_inventory,
+      loans_returns,
+      transfers,
+      inventory_sales,
     };
   };
 

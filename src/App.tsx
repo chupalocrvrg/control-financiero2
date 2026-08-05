@@ -19,6 +19,7 @@ const Employees = lazy(() => import('./pages/Employees'));
 const Sales = lazy(() => import('./pages/Sales'));
 const Collections = lazy(() => import('./pages/Collections'));
 const Inventory = lazy(() => import('./pages/Inventory'));
+const Buro = lazy(() => import('./pages/Buro'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
 const LoadingFallback = () => (
@@ -45,6 +46,7 @@ export default function App() {
                     <Route path="/" element={<SecurityGuard><Dashboard /></SecurityGuard>} />
                     <Route path="/entry" element={<SecurityGuard><CheckEntry /></SecurityGuard>} />
                     <Route path="/search" element={<SecurityGuard><CheckSearch /></SecurityGuard>} />
+                    <Route path="/buro" element={<SecurityGuard><Buro /></SecurityGuard>} />
                     <Route path="/sales" element={<SecurityGuard><Sales /></SecurityGuard>} />
                     <Route path="/collections" element={<SecurityGuard><Collections /></SecurityGuard>} />
                     <Route path="/employees" element={<SecurityGuard><Employees /></SecurityGuard>} />

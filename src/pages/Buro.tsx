@@ -31,9 +31,11 @@ import { db } from '../firebase';
 import { collection, addDoc, getDocs, query, where, orderBy, Timestamp } from 'firebase/firestore';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import * as XLSX from 'xlsx';
 import {
   processBuroFile,
   exportBuroToExcel,
+  exportBuroToGjm,
   BuroProcessingResult,
   BuroRecord,
   PhaseAudit
@@ -100,13 +102,36 @@ export default function Buro() {
 
   const processSelectedFile = (file: File) => {
     setFileName(file.name);
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const text = event.target?.result as string;
-      setFileContent(text || '');
-      showToast(`Archivo "${file.name}" cargado exitosamente`, 'success');
-    };
-    reader.readAsText(file, 'ISO-8859-1'); // Common encoding for Latin systems/GJM
+    const lowerName = file.name.toLowerCase();
+    const isExcel = lowerName.endsWith('.xlsx') || lowerName.endsWith('.xls');
+
+    if (isExcel) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = new Uint8Array(e.target?.result as ArrayBuffer);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          // Convert sheet to semicolon-separated text
+          const csvText = XLSX.utils.sheet_to_csv(worksheet, { FS: ';' });
+          setFileContent(csvText || '');
+          showToast(`Archivo Excel "${file.name}" leído exitosamente`, 'success');
+        } catch (err: any) {
+          console.error('Error leyendo Excel:', err);
+          showToast(`Error al procesar hoja Excel: ${err?.message || 'Formato no soportado'}`, 'error');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const text = event.target?.result as string;
+        setFileContent(text || '');
+        showToast(`Archivo "${file.name}" cargado exitosamente`, 'success');
+      };
+      reader.readAsText(file, 'ISO-8859-1'); // Common encoding for Latin systems/GJM
+    }
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -191,6 +216,16 @@ export default function Buro() {
     showToast(`Descargado ${result.principalFilename}`, 'success');
   };
 
+  const handleDownloadPrincipalGjm = () => {
+    if (!result || result.principalRecords.length === 0) {
+      showToast('No hay registros principales para exportar', 'error');
+      return;
+    }
+    const gjmName = result.principalFilename.replace(/\.xlsx$/i, '.gjm');
+    exportBuroToGjm(result.principalRecords, gjmName);
+    showToast(`Descargado ${gjmName}`, 'success');
+  };
+
   const handleDownloadIncompletas = () => {
     if (!result || result.invalidRecords.length === 0) {
       showToast('No hay registros de cédulas incompletas para exportar', 'info');
@@ -242,7 +277,7 @@ export default function Buro() {
             </h1>
             <p className="text-neutral-300 text-sm max-w-2xl">
               Procesamiento automatizado de 12 fases bajo el estándar de Equifax Ecuador.
-              Estructura, limpia, valida cédulas mediante Módulo 10 y exporta archivos <code className="bg-black/40 px-1.5 py-0.5 rounded text-indigo-300 font-mono">2968_[MES].xlsx</code> y <code className="bg-black/40 px-1.5 py-0.5 rounded text-indigo-300 font-mono">Cedulas_Incompletas.xlsx</code>.
+              Estructura, limpia, valida cédulas mediante Módulo 10 y exporta archivos <code className="bg-black/40 px-1.5 py-0.5 rounded text-indigo-300 font-mono">2968_(FECHA_DE_CORTE).xlsx</code> y <code className="bg-black/40 px-1.5 py-0.5 rounded text-indigo-300 font-mono">Cedulas_Incompletas.xlsx</code>.
             </p>
           </div>
 
@@ -306,7 +341,7 @@ export default function Buro() {
           <input
             ref={fileInputRef}
             type="file"
-            accept=".gjm,.txt,.csv,.dat"
+            accept=".gjm,.txt,.csv,.dat,.xlsx,.xls"
             onChange={handleFileChange}
             className="hidden"
           />
@@ -321,19 +356,19 @@ export default function Buro() {
           {fileContent ? (
             <div className="space-y-1">
               <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100">
-                {fileName || 'Archivo .gjm cargado'}
+                {fileName || 'Archivo cargado'}
               </p>
               <p className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold">
-                ✓ Contenido preparado ({fileContent.split('\n').length} líneas / {(fileContent.length / 1024).toFixed(1)} KB)
+                ✓ Contenido preparado ({fileContent.split('\n').filter(Boolean).length} filas detectadas / {(fileContent.length / 1024).toFixed(1)} KB)
               </p>
             </div>
           ) : (
             <div className="space-y-1">
               <p className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">
-                Arrastre su archivo <span className="font-bold text-indigo-600 dark:text-indigo-400">.gjm</span> aquí o haga clic para examinar
+                Arrastre su archivo <span className="font-bold text-indigo-600 dark:text-indigo-400">.gjm, .xlsx, .csv</span> aquí o haga clic
               </p>
               <p className="text-xs text-neutral-400">
-                Soporta archivos .gjm, .txt o .csv con delimitador ';'
+                Soporta archivos Excel (.xlsx, .xls), archivos Equifax (.gjm), .txt o .csv (delimitado por ;, tabulación o coma)
               </p>
             </div>
           )}
@@ -455,13 +490,22 @@ export default function Buro() {
                 Generados automáticamente bajo formato .xlsx con formato de texto estricto en identificadores.
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={handleDownloadPrincipal}
                 className="flex-1 sm:flex-none px-4 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2 transition-all active:scale-95"
+                title="Descargar en formato Excel (.xlsx)"
               >
                 <Download className="w-4 h-4" />
-                Descargar {result.principalFilename}
+                Excel: {result.principalFilename}
+              </button>
+              <button
+                onClick={handleDownloadPrincipalGjm}
+                className="flex-1 sm:flex-none px-3.5 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2 transition-all active:scale-95"
+                title="Descargar en formato plano delimitado por punto y coma (.gjm)"
+              >
+                <Download className="w-4 h-4" />
+                .GJM (Texto)
               </button>
               {result.invalidRecords.length > 0 && (
                 <button

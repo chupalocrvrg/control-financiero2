@@ -14,7 +14,7 @@ import { logAudit, AuditAction } from '../lib/audit';
 import { isSuperAdminEmail } from '../lib/utils';
 
 export default function CheckEntry() {
-  const { user, profile, originalUser } = useAuth();
+  const { user, profile, originalUser, impersonatedUser } = useAuth();
   const { settings } = useSettings();
   const { showToast, showAlert } = useNotification();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -24,7 +24,7 @@ export default function CheckEntry() {
   const [enterprises, setEnterprises] = useState<{ id: string; name: string; email?: string }[]>([]);
   const [selectedEnterpriseId, setSelectedEnterpriseId] = useState<string>('');
 
-  const isSuperAdmin = profile?.role === 'ADMIN' || profile?.role === 'SUPERADMIN' || isSuperAdminEmail(originalUser?.email);
+  const isSuperAdmin = !impersonatedUser && (profile?.role === 'ADMIN' || profile?.role === 'SUPERADMIN' || isSuperAdminEmail(user?.email));
 
   const [formData, setFormData] = useState({
     beneficiaryName: '',

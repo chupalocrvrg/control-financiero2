@@ -34,6 +34,7 @@ interface AuthContextType {
   loading: boolean;
   sessionVerified: boolean;
   isAdmin: boolean;
+  isSuperAdmin: boolean;
   isExpired: boolean;
   login: () => Promise<void>;
   logout: () => Promise<void>;
@@ -119,8 +120,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const defaultProfile = {
               uid: firebaseUser.uid,
               email: firebaseUser.email || '',
-              name: firebaseUser.displayName || 'Usuario Nuevo',
-              role: (isSuperAdminEmail(firebaseUser.email) ? 'SUPERADMIN' : 'USER') as any,
+              name: firebaseUser.displayName || 'Empresa Nueva',
+              role: (isSuperAdminEmail(firebaseUser.email) ? 'SUPERADMIN' : 'enterprise') as any,
+              enterpriseId: firebaseUser.uid,
               status: 'ENABLED' as any,
               hasCompletedOnboarding: isSuperAdminEmail(firebaseUser.email),
               subscriptionEnd: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
@@ -240,6 +242,10 @@ useEffect(() => {
       
       logAudit(AuditAction.USER_LOGIN, 'Inicio de sesión exitoso por proveedor Google', undefined, result.user);
     } catch (error: any) {
+      if (error.code === 'auth/popup-closed-by-user') {
+        console.info("El usuario cerró la ventana emergente de Google.");
+        return;
+      }
       console.error("Error signing in with Google popup", error);
       if (error.code === 'auth/unauthorized-domain') {
         throw new Error('El dominio actual no está autorizado. Ve a Firebase Console -> Authentication -> Settings -> Authorized domains y añade tu dominio de Vercel.');
@@ -249,7 +255,7 @@ useEffect(() => {
         throw new Error('La ventana de Google fue cerrada o bloqueada. Permite las ventanas emergentes e intenta nuevamente.');
       }
 
-      if (error.message.includes('cross-origin') || error.message.includes('third-party') || error.code === 'auth/internal-error') {
+      if (error.message?.includes('cross-origin') || error.message?.includes('third-party') || error.code === 'auth/internal-error') {
         throw new Error("Tu navegador bloquea las cookies de Firebase. Desactiva la Prevención de Rastreo (Edge/Brave) o permite cookies de terceros e intenta de nuevo.");
       }
       
@@ -392,6 +398,7 @@ useEffect(() => {
   } as unknown as FirebaseUser) : actualUser;
 
   const isSuperAdminOriginal = isSuperAdminEmail(actualUser?.email);
+  const isSuperAdmin = profile?.role === 'SUPERADMIN' || isSuperAdminOriginal || isSuperAdminEmail(effectiveUser?.email);
   const isAdmin = profile?.role === 'ADMIN' || profile?.role === 'SUPERADMIN' || isSuperAdminEmail(effectiveUser?.email);
   const isExpired = profile 
     ? (!isAdmin && !isSuperAdminOriginal && (isAfter(new Date(), parseISO(profile.subscriptionEnd)) || profile.status === 'DISABLED')) 
@@ -404,6 +411,7 @@ useEffect(() => {
       loading,
       sessionVerified,
       isAdmin,
+      isSuperAdmin,
       isExpired,
       login,
       logout,

@@ -31,7 +31,7 @@ export default function Budgets() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const { user, profile } = useAuth();
+  const { user, profile, isSuperAdmin } = useAuth();
   const currentEnterpriseId = profile?.enterpriseId || user?.uid;
   const [search, setSearch] = useState('');
 
@@ -43,24 +43,46 @@ export default function Budgets() {
     try {
       setLoading(true);
       setError(null);
-      await unifyEmployeesAndBudgets();
-      const derickUid = await getDerickEnterpriseUid();
-      const targetEntId = currentEnterpriseId || derickUid;
+      const targetEntId = currentEnterpriseId || user?.uid || '';
 
-      // Fetch employees belonging to current enterprise or derick
+      if (!user || !targetEntId) {
+        setEmployees([]);
+        setBudgets({});
+        setLoading(false);
+        return;
+      }
+
+      // Fetch employees belonging to current enterprise
       const empQ = query(collection(db, 'employees'), where('enterpriseId', '==', targetEntId));
       const empSnapshot = await getDocs(empQ);
-      let empData = empSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Employee));
-      
-      if (empData.length === 0) {
-        const allSnap = await getDocs(collection(db, 'employees'));
-        empData = allSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Employee));
+      const empData = empSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Employee));
+
+      // Fetch linked email employees (safely guarded)
+      let userEmpData: Employee[] = [];
+      try {
+        if (isSuperAdmin) {
+          const userEmpQ = query(collection(db, 'users'), where('enterpriseId', '==', targetEntId), where('role', '==', 'employee'));
+          const userEmpSnap = await getDocs(userEmpQ);
+          userEmpData = userEmpSnap.docs.map(uDoc => {
+            const u = uDoc.data();
+            return {
+              id: uDoc.id,
+              name: u.name || 'Empleado',
+              lastName: u.lastName || '',
+              role: (u.employeeRole || 'vendedor') as any
+            };
+          });
+        }
+      } catch (e) {
+        // Non-admin users cannot list 'users' collection; safely ignore
       }
+
+      const combined = [...empData, ...userEmpData];
 
       // Deduplicate employees
       const uniqueEmps: Employee[] = [];
       const seenNames = new Set<string>();
-      empData.forEach(e => {
+      combined.forEach(e => {
         const key = `${e.name || ''} ${e.lastName || ''}`.trim().toLowerCase();
         if (!seenNames.has(key)) {
           seenNames.add(key);
@@ -71,7 +93,7 @@ export default function Budgets() {
       uniqueEmps.sort((a, b) => a.name.localeCompare(b.name));
       setEmployees(uniqueEmps);
       
-      // Fetch budgets belonging to current enterprise or derick
+      // Fetch budgets belonging to current enterprise
       const budgetQ = query(collection(db, 'budgets'), where('enterpriseId', '==', targetEntId));
       const budgetSnapshot = await getDocs(budgetQ);
       
@@ -82,18 +104,6 @@ export default function Budgets() {
           budgetMap[data.employeeId] = { id: doc.id, ...data };
         }
       });
-
-      // If budgetMap is empty, try loading all budgets for month as fallback
-      if (Object.keys(budgetMap).length === 0) {
-        const allBudgetsQ = query(collection(db, 'budgets'), where('month', '==', currentMonth));
-        const allBudgetsSnap = await getDocs(allBudgetsQ);
-        allBudgetsSnap.docs.forEach(doc => {
-          const data = doc.data() as Budget;
-          if (uniqueEmps.some(e => e.id === data.employeeId)) {
-            budgetMap[data.employeeId] = { id: doc.id, ...data };
-          }
-        });
-      }
 
       setBudgets(budgetMap);
     } catch (err: any) {
@@ -127,8 +137,7 @@ export default function Budgets() {
       setSaving(true);
       setError(null);
       setSuccess(null);
-      const derickUid = await getDerickEnterpriseUid();
-      const targetEntId = currentEnterpriseId || derickUid;
+      const targetEntId = currentEnterpriseId || user.uid;
 
       const promises = Object.values(budgets).map(async (budget: any) => {
         const docRef = doc(db, 'budgets', budget.id);

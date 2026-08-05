@@ -28,6 +28,9 @@ const inIframe = window.self !== window.top;
     try {
       await login();
     } catch (err: any) {
+      if (err?.code === 'auth/popup-closed-by-user' || err?.message?.includes('popup-closed-by-user')) {
+        return;
+      }
       setError(err.message);
     }
   };

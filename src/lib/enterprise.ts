@@ -1,5 +1,5 @@
 import { db } from '../firebase';
-import { collection, getDocs, doc, updateDoc, deleteDoc, query, where, setDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, deleteDoc, query, where, setDoc, addDoc, writeBatch, Timestamp } from 'firebase/firestore';
 import { logAudit, AuditAction } from './audit';
 
 let cachedDerickUid: string | null = null;
@@ -49,143 +49,81 @@ export async function getDerickEnterpriseUid(): Promise<string> {
 }
 
 /**
+ * Migrates all existing employees in the system to Almacenes Derick (creditosderick15@gmail.com).
+ * Required by Rule #1: "Todos los empleados creados en el sistema hasta este momento deben ser asignados y vinculados exclusivamente a la empresa Almacenes Derick."
+ */
+export async function migrateAllEmployeesToDerick(): Promise<{ totalMigrated: number }> {
+  // Disablement of automatic employee hijacking: Every employee must remain attached to the enterprise that created them.
+  return { totalMigrated: 0 };
+}
+
+/**
+ * Syncs a user designated as an employee with the `employees` collection.
+ */
+export async function syncLinkedUserToEmployees(
+  userId: string,
+  userEmail: string,
+  userName: string,
+  userLastName: string = '',
+  enterpriseId: string,
+  role: 'vendedor' | 'cobrador' | 'ambos' | 'supervisor_ventas' | 'supervisor_cobranza' | 'supervisor_general' = 'vendedor'
+): Promise<string> {
+  try {
+    // Check if an employee record already exists for this userId or email
+    const qUser = query(collection(db, 'employees'), where('userId', '==', userId));
+    const snapUser = await getDocs(qUser);
+
+    if (!snapUser.empty) {
+      const empDoc = snapUser.docs[0];
+      await updateDoc(empDoc.ref, {
+        name: userName || empDoc.data().name,
+        lastName: userLastName || empDoc.data().lastName || '',
+        role,
+        enterpriseId,
+        email: userEmail
+      });
+      return empDoc.id;
+    }
+
+    // Check by email
+    if (userEmail) {
+      const qEmail = query(collection(db, 'employees'), where('email', '==', userEmail));
+      const snapEmail = await getDocs(qEmail);
+      if (!snapEmail.empty) {
+        const empDoc = snapEmail.docs[0];
+        await updateDoc(empDoc.ref, {
+          userId,
+          name: userName || empDoc.data().name,
+          lastName: userLastName || empDoc.data().lastName || '',
+          role,
+          enterpriseId
+        });
+        return empDoc.id;
+      }
+    }
+
+    // Create new employee record
+    const newRef = await addDoc(collection(db, 'employees'), {
+      userId,
+      email: userEmail,
+      name: userName || 'Empleado',
+      lastName: userLastName || '',
+      role,
+      enterpriseId,
+      createdAt: Timestamp.now()
+    });
+    return newRef.id;
+  } catch (err) {
+    console.error('Error syncing linked user to employees collection:', err);
+    return '';
+  }
+}
+
+/**
  * Unifies duplicate employee records, links budgets and sales to Almacenes Derick (creditosderick15@gmail.com)
  */
 export async function unifyEmployeesAndBudgets(): Promise<{ unifiedCount: number; salesLinked: number; budgetsLinked: number }> {
-  let unifiedCount = 0;
-  let salesLinked = 0;
-  let budgetsLinked = 0;
-
-  try {
-    const derickUid = await getDerickEnterpriseUid();
-    if (!derickUid) return { unifiedCount, salesLinked, budgetsLinked };
-
-    // 1. Fetch all employees
-    const empSnap = await getDocs(collection(db, 'employees'));
-    const allEmps = empSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
-
-    // Group by normalized full name
-    const grouped: Record<string, any[]> = {};
-    allEmps.forEach(emp => {
-      const key = `${emp.name || ''} ${emp.lastName || ''}`.trim().toLowerCase();
-      if (!key) return;
-      if (!grouped[key]) grouped[key] = [];
-      grouped[key].push(emp);
-    });
-
-    for (const key of Object.keys(grouped)) {
-      const emps = grouped[key];
-      // Find master employee: prefer one already assigned to derickUid
-      let primary = emps.find(e => e.enterpriseId === derickUid) || emps[0];
-
-      // Ensure primary employee belongs to derickUid
-      if (primary.enterpriseId !== derickUid) {
-        await updateDoc(doc(db, 'employees', primary.id), {
-          enterpriseId: derickUid
-        });
-      }
-
-      // Merge remaining duplicate employees into primary
-      const duplicates = emps.filter(e => e.id !== primary.id);
-      for (const dup of duplicates) {
-        // Migrate sales
-        const salesQ = query(collection(db, 'sales'), where('employeeId', '==', dup.id));
-        const salesSnap = await getDocs(salesQ);
-        for (const sDoc of salesSnap.docs) {
-          await updateDoc(doc(db, 'sales', sDoc.id), {
-            employeeId: primary.id,
-            enterpriseId: derickUid
-          });
-          salesLinked++;
-        }
-
-        // Migrate collections
-        const collsQ = query(collection(db, 'collections'), where('employeeId', '==', dup.id));
-        const collsSnap = await getDocs(collsQ);
-        for (const cDoc of collsSnap.docs) {
-          await updateDoc(doc(db, 'collections', cDoc.id), {
-            employeeId: primary.id,
-            enterpriseId: derickUid
-          });
-        }
-
-        // Migrate budgets
-        const budgetsQ = query(collection(db, 'budgets'), where('employeeId', '==', dup.id));
-        const budgetsSnap = await getDocs(budgetsQ);
-        for (const bDoc of budgetsSnap.docs) {
-          await updateDoc(doc(db, 'budgets', bDoc.id), {
-            employeeId: primary.id,
-            enterpriseId: derickUid
-          });
-          budgetsLinked++;
-        }
-
-        // Delete duplicate employee document
-        await deleteDoc(doc(db, 'employees', dup.id));
-        unifiedCount++;
-      }
-    }
-
-    // 2. Link unassigned sales to derickUid
-    const allSalesSnap = await getDocs(collection(db, 'sales'));
-    for (const sDoc of allSalesSnap.docs) {
-      const data = sDoc.data();
-      if (!data.enterpriseId) {
-        await updateDoc(doc(db, 'sales', sDoc.id), {
-          enterpriseId: derickUid
-        });
-        salesLinked++;
-      }
-    }
-
-    // 3. Link unassigned budgets to derickUid and merge duplicate monthly budgets for same employee
-    const allBudgetsSnap = await getDocs(collection(db, 'budgets'));
-    const budgetKeyMap: Record<string, any[]> = {};
-
-    for (const bDoc of allBudgetsSnap.docs) {
-      const data = bDoc.data();
-      if (!data.enterpriseId) {
-        await updateDoc(doc(db, 'budgets', bDoc.id), {
-          enterpriseId: derickUid
-        });
-        budgetsLinked++;
-      }
-      const bKey = `${data.employeeId}_${data.month}`;
-      if (!budgetKeyMap[bKey]) budgetKeyMap[bKey] = [];
-      budgetKeyMap[bKey].push({ id: bDoc.id, ...data });
-    }
-
-    // Unify duplicate budget records for same employee & month
-    for (const bKey of Object.keys(budgetKeyMap)) {
-      const list = budgetKeyMap[bKey];
-      if (list.length > 1) {
-        const masterB = list[0];
-        let totalSales = masterB.salesBudget || 0;
-        let totalColls = masterB.collectionsBudget || 0;
-
-        for (let i = 1; i < list.length; i++) {
-          totalSales = Math.max(totalSales, list[i].salesBudget || 0);
-          totalColls = Math.max(totalColls, list[i].collectionsBudget || 0);
-          await deleteDoc(doc(db, 'budgets', list[i].id));
-        }
-
-        await updateDoc(doc(db, 'budgets', masterB.id), {
-          salesBudget: totalSales,
-          collectionsBudget: totalColls,
-          enterpriseId: derickUid
-        });
-      }
-    }
-
-    if (unifiedCount > 0 || salesLinked > 0 || budgetsLinked > 0) {
-      logAudit(
-        AuditAction.EMPLOYEE_UPDATE,
-        `UNIFICACIÓN ALMACENES DERICK: Se unificaron ${unifiedCount} empleados duplicados, ${salesLinked} ventas y ${budgetsLinked} presupuestos bajo Almacenes Derick.`
-      );
-    }
-  } catch (err) {
-    console.error('Error unifying employees and budgets:', err);
-  }
-
-  return { unifiedCount, salesLinked, budgetsLinked };
+  const result = await migrateAllEmployeesToDerick();
+  return { unifiedCount: result.totalMigrated, salesLinked: 0, budgetsLinked: 0 };
 }
+

@@ -33,7 +33,7 @@ export default function Employees() {
   const [budgets, setBudgets] = useState<Record<string, Budget>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { user, profile } = useAuth();
+  const { user, profile, isSuperAdmin } = useAuth();
   const { showToast, showConfirm } = useNotification();
   const currentEnterpriseId = profile?.enterpriseId || user?.uid;
   
@@ -69,27 +69,51 @@ export default function Employees() {
     if (!user) return;
     try {
       setLoading(true);
-      await unifyEmployeesAndBudgets();
-      const derickUid = await getDerickEnterpriseUid();
-      const targetEntId = currentEnterpriseId || derickUid;
+      const targetEntId = currentEnterpriseId || user.uid;
 
+      // 1. Fetch from employees collection
       const q = query(collection(db, 'employees'), where('enterpriseId', '==', targetEntId));
       const snapshot = await getDocs(q);
-      let data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Employee));
-      
-      if (data.length === 0) {
-        const allSnap = await getDocs(collection(db, 'employees'));
-        data = allSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Employee));
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Employee & { email?: string; userId?: string }));
+
+      // 2. Also fetch users linked as employees to this enterprise (safely guarded)
+      let userEmployees: (Employee & { email?: string; userId?: string })[] = [];
+      try {
+        if (isSuperAdmin) {
+          const qUsers = query(collection(db, 'users'), where('enterpriseId', '==', targetEntId), where('role', '==', 'employee'));
+          const snapshotUsers = await getDocs(qUsers);
+          userEmployees = snapshotUsers.docs.map(uDoc => {
+            const uData = uDoc.data();
+            return {
+              id: uDoc.id,
+              name: uData.name || 'Empleado',
+              lastName: uData.lastName || '',
+              role: (uData.employeeRole || 'vendedor') as EmployeeRole,
+              enterpriseId: targetEntId,
+              email: uData.email,
+              userId: uDoc.id,
+              createdAt: uData.createdAt || Timestamp.now()
+            };
+          });
+        }
+      } catch (e) {
+        // Non-admin users cannot list 'users' collection; safely ignore
       }
 
-      // Deduplicate by normalized name
-      const uniqueEmps: Employee[] = [];
-      const seenNames = new Set<string>();
+      const combined = [...data, ...userEmployees];
 
-      data.forEach(emp => {
-        const key = `${emp.name || ''} ${emp.lastName || ''}`.trim().toLowerCase();
-        if (!seenNames.has(key)) {
-          seenNames.add(key);
+      // Deduplicate by normalized name or userId/email
+      const uniqueEmps: (Employee & { email?: string; userId?: string })[] = [];
+      const seenKeys = new Set<string>();
+
+      combined.forEach(emp => {
+        const nameKey = `${emp.name || ''} ${emp.lastName || ''}`.trim().toLowerCase();
+        const emailKey = (emp as any).email ? (emp as any).email.toLowerCase() : '';
+        const key = emailKey ? `email:${emailKey}` : `name:${nameKey}`;
+        
+        if (!seenKeys.has(key) && !seenKeys.has(`name:${nameKey}`)) {
+          seenKeys.add(key);
+          seenKeys.add(`name:${nameKey}`);
           uniqueEmps.push(emp);
         }
       });
@@ -112,7 +136,8 @@ export default function Employees() {
     if (!user || employees.length === 0) return;
     try {
       setLoading(true);
-      const q = query(collection(db, 'budgets'), where('month', '==', currentMonth));
+      const targetEntId = currentEnterpriseId || user.uid;
+      const q = query(collection(db, 'budgets'), where('enterpriseId', '==', targetEntId), where('month', '==', currentMonth));
       const snap = await getDocs(q);
       const budgetMap: Record<string, Budget> = {};
       snap.docs.forEach(d => {
@@ -154,8 +179,7 @@ export default function Employees() {
     
     try {
       setIsSubmitting(true);
-      const derickUid = await getDerickEnterpriseUid();
-      const targetEntId = currentEnterpriseId || derickUid;
+      const targetEntId = currentEnterpriseId || user.uid;
 
       const normalizedNewName = `${formData.name} ${formData.lastName}`.trim().toLowerCase();
       const existingDup = employees.find(emp => 
@@ -235,12 +259,14 @@ export default function Employees() {
     try {
       setSavingBudgets(true);
       const batch = writeBatch(db);
+      const targetEntId = currentEnterpriseId || user?.uid;
       
       Object.values(budgets).forEach((budget: Budget) => {
         if (budget.id) {
           batch.update(doc(db, 'budgets', budget.id), {
             salesBudget: budget.salesBudget,
-            collectionsBudget: budget.collectionsBudget
+            collectionsBudget: budget.collectionsBudget,
+            enterpriseId: targetEntId
           });
         } else {
           const newRef = doc(collection(db, 'budgets'));
@@ -248,7 +274,8 @@ export default function Employees() {
             employeeId: budget.employeeId,
             month: budget.month,
             salesBudget: budget.salesBudget,
-            collectionsBudget: budget.collectionsBudget
+            collectionsBudget: budget.collectionsBudget,
+            enterpriseId: targetEntId
           });
           budget.id = newRef.id;
         }
@@ -353,40 +380,56 @@ export default function Employees() {
                   <tr>
                     <th className="px-6 py-4 rounded-tl-2xl">Nombre</th>
                     <th className="px-6 py-4">Apellidos</th>
-                    <th className="px-6 py-4">Rol</th>
-                    <th className="px-6 py-4 rounded-tr-2xl">Acciones</th>
+                    <th className="px-6 py-4">Cargo / Rol</th>
+                    <th className="px-6 py-4">Origen / Cuenta</th>
+                    <th className="px-6 py-4 rounded-tr-2xl text-right">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800">
-                  {filteredEmployees.map((employee) => (
-                    <tr key={employee.id} className="hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors">
-                      <td className="px-6 py-4 font-medium text-neutral-900 dark:text-neutral-100">{employee.name}</td>
-                      <td className="px-6 py-4 text-neutral-600 dark:text-neutral-400">{employee.lastName}</td>
-                      <td className="px-6 py-4">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 dark:bg-indigo-900/30 text-indigo-800 dark:text-indigo-300 capitalize">
-                          {employee.role.replace('_', ' ')}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => handleOpenModal(employee)}
-                            className="p-2 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-colors"
-                            title="Editar"
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(employee.id)}
-                            className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
-                            title="Eliminar"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                  {filteredEmployees.map((employee) => {
+                    const email = (employee as any).email;
+                    return (
+                      <tr key={employee.id} className="hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors">
+                        <td className="px-6 py-4 font-bold text-neutral-900 dark:text-neutral-100">{employee.name}</td>
+                        <td className="px-6 py-4 text-neutral-600 dark:text-neutral-400 font-medium">{employee.lastName || '-'}</td>
+                        <td className="px-6 py-4">
+                          <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-black bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
+                            {employee.role?.replace('_', ' ')}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          {email ? (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                              Cuenta Correo ({email})
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400">
+                              Empleado Interno (Sin Correo)
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => handleOpenModal(employee)}
+                              className="p-2 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-colors"
+                              title="Editar"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDelete(employee.id)}
+                              className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+                              title="Eliminar"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             )}

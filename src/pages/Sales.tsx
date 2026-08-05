@@ -34,10 +34,10 @@ export default function Sales() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { user, profile, originalUser } = useAuth();
+  const { user, profile, originalUser, impersonatedUser } = useAuth();
   const { showToast, showConfirm } = useNotification();
 
-  const isSuperAdmin = profile?.role === 'ADMIN' || profile?.role === 'SUPERADMIN' || isSuperAdminEmail(originalUser?.email);
+  const isSuperAdmin = !impersonatedUser && (profile?.role === 'ADMIN' || profile?.role === 'SUPERADMIN' || isSuperAdminEmail(user?.email));
 
   const [enterprises, setEnterprises] = useState<{ id: string; name: string; email?: string }[]>([]);
   const [selectedEnterpriseId, setSelectedEnterpriseId] = useState<string>(''); // list filter
@@ -119,8 +119,6 @@ export default function Sales() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      await unifyEmployeesAndBudgets();
-      const derickUid = await getDerickEnterpriseUid();
       
       let salesList: Sale[] = [];
       let empList: Employee[] = [];
@@ -140,7 +138,14 @@ export default function Sales() {
           empList = empList.filter((e: any) => e.enterpriseId === selectedEnterpriseId);
         }
       } else {
-        const tenantId = profile?.role === 'enterprise' ? user?.uid : (profile?.enterpriseId || user?.uid || derickUid);
+        const tenantId = profile?.role === 'enterprise' ? user?.uid : (profile?.enterpriseId || user?.uid || '');
+        if (!tenantId) {
+          setSales([]);
+          setEmployees([]);
+          setLoading(false);
+          return;
+        }
+
         const salesQ = query(collection(db, 'sales'), where('enterpriseId', '==', tenantId));
         const empQ = query(collection(db, 'employees'), where('enterpriseId', '==', tenantId));
         
@@ -151,17 +156,6 @@ export default function Sales() {
         
         salesList = salesRes.docs.map(doc => ({ id: doc.id, ...doc.data() } as Sale));
         empList = empRes.docs.map(doc => ({ id: doc.id, ...doc.data() } as Employee));
-
-        // If no sales found for current tenantId, load unassigned sales as well
-        if (salesList.length === 0) {
-          const allSalesSnap = await getDocs(collection(db, 'sales'));
-          salesList = allSalesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Sale));
-        }
-
-        if (empList.length === 0) {
-          const allEmpSnap = await getDocs(collection(db, 'employees'));
-          empList = allEmpSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Employee));
-        }
       }
 
       // Deduplicate employees by full name
@@ -237,10 +231,9 @@ export default function Sales() {
     
     try {
       setIsSubmitting(true);
-      const derickUid = await getDerickEnterpriseUid();
       const targetEnterpriseId = isSuperAdmin
-        ? (formEnterpriseId || selectedEnterpriseId || derickUid || user.uid)
-        : (profile?.role === 'enterprise' ? user.uid : (profile?.enterpriseId || derickUid || user.uid || ''));
+        ? (formEnterpriseId || selectedEnterpriseId || user.uid)
+        : (profile?.role === 'enterprise' ? user.uid : (profile?.enterpriseId || user.uid || ''));
 
       const saleData = {
         date: formData.date,

@@ -33,7 +33,7 @@ interface Check {
 }
 
 export default function CheckSearch() {
-  const { user, profile, originalUser } = useAuth();
+  const { user, profile, originalUser, impersonatedUser } = useAuth();
   const { settings } = useSettings();
   const { showToast, showConfirm } = useNotification();
   const [loading, setLoading] = useState(false);
@@ -45,7 +45,7 @@ export default function CheckSearch() {
   const [selectedEnterpriseId, setSelectedEnterpriseId] = useState<string>('');
   const [enterprises, setEnterprises] = useState<{ id: string; name: string; email?: string }[]>([]);
 
-  const isSuperAdmin = profile?.role === 'ADMIN' || profile?.role === 'SUPERADMIN' || isSuperAdminEmail(originalUser?.email);
+  const isSuperAdmin = !impersonatedUser && (profile?.role === 'ADMIN' || profile?.role === 'SUPERADMIN' || isSuperAdminEmail(user?.email));
 
   const defaultEnterpriseId = profile?.role === 'enterprise'
     ? user?.uid

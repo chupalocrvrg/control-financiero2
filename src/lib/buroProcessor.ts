@@ -4,38 +4,43 @@ import * as XLSX from 'xlsx';
 import { validateEcuadorianId, Modulo10Result } from './ecuadorModulo10';
 
 export interface BuroRecord {
-  // Native 19 fields
+  // 28 Official Equifax Fields
+  cod_tipo_id?: string;
   cod_id_sujeto: string;
   nom_sujeto: string;
-  fec_nacimiento: string;
-  telefono: string;
   direccion: string;
+  ciudad?: string;
+  telefono: string;
+  fec_corte_saldo: string;
+  tipo_deudor?: string;
   num_operacion: string;
   fec_concesion: string;
-  fec_vencimiento: string;
-  fec_corte_saldo: string;
+  val_operacion?: number;
   monto_concedido: number;
   val_xvencer: number;
   val_vencido: number;
   val_dem_judicial: number;
   val_cart_castigada: number;
   num_dias_vencido: number;
-  num_cuotas_vencidas: number;
-  val_cuota: number;
-  periodicidad_pago: string;
-  tipo_garantia: string;
+  fec_nacimiento: string;
+  deuda_refinanciada?: number;
+  fec_vencimiento: string;
+
+  num_cuotas_vencidas?: number;
+  val_cuota?: number;
+  periodicidad_pago?: string;
+  tipo_garantia?: string;
 
   // Injected Equifax Bureau Variables
-  REPORTADO?: string;
-  FACTURAS_PAGADAS?: string;
+  REPORTADO?: string | number;
+  FACTURAS_PAGADAS?: string | number;
   PARROQUIA?: string;
   EMAIL?: string;
   GENERO?: string;
   ESTADO_CIVIL?: string;
   ESTADO_OPERACION?: string;
-  FECHA_PAGO_CUOTA?: string;
+  FECHA_PAGO_CUOTA?: string | number;
 
-  // Injected NDI Variable
   VALOR_NDI: number;
 
   // Calculated / Internal metadata
@@ -101,27 +106,57 @@ function parseNumberSafe(val: any): number {
 }
 
 /**
- * Normalizes date to DD/MM/YYYY format
+ * Normalizes date to yyyy/MM/dd format, removing time components and invalid values
  */
-function parseAndFormatDate(dateStr: string): string {
-  if (!dateStr || !dateStr.trim()) return '';
-  const clean = dateStr.trim();
+function parseAndFormatDate(dateStr: any): string {
+  if (dateStr === null || dateStr === undefined) return '';
+  let clean = String(dateStr).trim();
+  if (!clean || clean === '0' || clean === '00/00/0000' || clean === '0000-00-00' || clean === 'null' || clean === 'undefined') return '';
 
-  // Try parsing common formats
+  // Strip time components if present (e.g. "2026-06-30 00:00:00" or "30/06/2026T00:00:00")
+  if (clean.includes(' ') || clean.includes('T')) {
+    clean = clean.split(/[ T]/)[0].trim();
+  }
+
+  // Fast direct matches
+  if (/^\d{4}\/\d{2}\/\d{2}$/.test(clean)) return clean; // Already yyyy/MM/dd (10 chars)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean.replace(/-/g, '/'); // yyyy-MM-dd -> yyyy/MM/dd
+
+  // Convert dd/MM/yyyy or dd-MM-yyyy or d/M/yyyy to yyyy/MM/dd (strictly padded 2 digits for day & month)
+  if (/^\d{1,2}[\/\.-]\d{1,2}[\/\.-]\d{4}$/.test(clean)) {
+    const p = clean.split(/[\/\.-]/);
+    const day = p[0].padStart(2, '0');
+    const month = p[1].padStart(2, '0');
+    const year = p[2];
+    return `${year}/${month}/${day}`;
+  }
+
+  // Convert yyyy/M/d or yyyy-M-d to yyyy/MM/dd
+  if (/^\d{4}[\/\.-]\d{1,2}[\/\.-]\d{1,2}$/.test(clean)) {
+    const p = clean.split(/[\/\.-]/);
+    const year = p[0];
+    const month = p[1].padStart(2, '0');
+    const day = p[2].padStart(2, '0');
+    return `${year}/${month}/${day}`;
+  }
+
+  // Try parsing common formats with date-fns
   const formatsToTry = [
+    'yyyy/MM/dd',
     'dd/MM/yyyy',
     'yyyy-MM-dd',
     'dd-MM-yyyy',
-    'yyyy/MM/dd',
     'd/M/yyyy',
-    'dd.MM.yyyy'
+    'dd.MM.yyyy',
+    'yyyyMMdd',
+    'ddMMyyyy'
   ];
 
   for (const fmt of formatsToTry) {
     try {
       const parsed = parse(clean, fmt, new Date());
       if (isValid(parsed)) {
-        return format(parsed, 'dd/MM/yyyy');
+        return format(parsed, 'yyyy/MM/dd');
       }
     } catch {
       // continue
@@ -131,12 +166,12 @@ function parseAndFormatDate(dateStr: string): string {
   // Fallback to ISO parse
   try {
     const iso = parseISO(clean);
-    if (isValid(iso)) return format(iso, 'dd/MM/yyyy');
+    if (isValid(iso)) return format(iso, 'yyyy/MM/dd');
   } catch {
     // ignore
   }
 
-  return clean; // return as-is if unparseable
+  return clean.length > 10 ? clean.substring(0, 10) : clean; // return as-is if unparseable
 }
 
 /**
@@ -147,8 +182,11 @@ function parseDateToObj(dateStr: string): Date | null {
   const normalized = parseAndFormatDate(dateStr);
   if (!normalized) return null;
   try {
-    const parsed = parse(normalized, 'dd/MM/yyyy', new Date());
-    return isValid(parsed) ? parsed : null;
+    const parsed = parse(normalized, 'yyyy/MM/dd', new Date());
+    if (isValid(parsed)) return parsed;
+    const parsedAlt = parse(normalized, 'dd/MM/yyyy', new Date());
+    if (isValid(parsedAlt)) return parsedAlt;
+    return null;
   } catch {
     return null;
   }
@@ -159,9 +197,6 @@ function parseDateToObj(dateStr: string): Date | null {
  */
 export function processBuroFile(rawText: string): BuroProcessingResult {
   const audits: PhaseAudit[] = [];
-  const currentMonthName = format(new Date(), 'MMMM', { locale: es }).toUpperCase();
-  const principalFilename = `2968_${currentMonthName}.xlsx`;
-  const secondaryFilename = `Cedulas_Incompletas.xlsx`;
 
   // Stats counters
   let totalRawRows = 0;
@@ -172,7 +207,7 @@ export function processBuroFile(rawText: string): BuroProcessingResult {
   let datesPatchedCount = 0;
 
   // ----------------------------------------------------
-  // FASE 1: IMPORTACIÓN Y DELIMITACIÓN
+  // FASE 1: IMPORTACIÓN Y DELIMITACIÓN AUTOMÁTICA
   // ----------------------------------------------------
   const rawLines = rawText.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
   totalRawRows = rawLines.length;
@@ -180,43 +215,156 @@ export function processBuroFile(rawText: string): BuroProcessingResult {
   let records: BuroRecord[] = [];
   const phase1Details: string[] = [];
 
-  // Check if first line is header
+  // Auto-detect delimiter
+  let delimiter = ';';
+  const sampleLines = rawLines.slice(0, 15);
+  let countSemi = 0, countComma = 0, countTab = 0, countPipe = 0;
+  for (const l of sampleLines) {
+    countSemi += (l.match(/;/g) || []).length;
+    countComma += (l.match(/,/g) || []).length;
+    countTab += (l.match(/\t/g) || []).length;
+    countPipe += (l.match(/\|/g) || []).length;
+  }
+  if (countSemi === 0) {
+    if (countPipe > countComma && countPipe > countTab) delimiter = '|';
+    else if (countTab > countComma) delimiter = '\t';
+    else if (countComma > 0) delimiter = ',';
+  }
+
+  phase1Details.push(`Delimitador detectado: "${delimiter === '\t' ? '\\t (Tab)' : delimiter}"`);
+
+  // Check header line & column mapping
   let startIndex = 0;
+  let colMap: Record<string, number> = {};
+  let hasMappedHeader = false;
+
   if (rawLines.length > 0) {
     const firstLineLower = rawLines[0].toLowerCase();
-    if (firstLineLower.includes('cod_id_sujeto') || firstLineLower.includes('cedula') || firstLineLower.includes('identificacion')) {
-      startIndex = 1; // Skip header line
-      phase1Details.push('Cabecera original detectada y omitida de los registros de datos.');
+    const firstParts = rawLines[0].split(delimiter).map(p => p.trim().replace(/^["']|["']$/g, '').toLowerCase());
+
+    const isHeader = firstParts.some(p => 
+      p.includes('cod_id_sujeto') || p.includes('cod_tipo_id') || p.includes('cedula') || p.includes('identificacion') || p.includes('ruc') || p.includes('nombre') || p.includes('cliente') || p.includes('num_operacion')
+    );
+
+    if (isHeader) {
+      startIndex = 1;
+      hasMappedHeader = true;
+      phase1Details.push('Cabecera detectada y mapeada dinámicamente.');
+
+      // Build field index map
+      firstParts.forEach((part, idx) => {
+        const clean = part.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+        if (clean === 'cod_tipo_id' || clean === 'tipo_id') colMap['cod_tipo_id'] = idx;
+        else if (clean === 'cod_id_sujeto' || (clean.includes('cod_id') && !clean.includes('tipo')) || clean.includes('cedula') || clean.includes('ruc') || clean.includes('identificacion')) colMap['cod_id_sujeto'] = idx;
+        else if (clean.includes('nom') || clean.includes('nombre') || clean.includes('cliente') || clean.includes('sujeto') || clean.includes('razon')) colMap['nom_sujeto'] = idx;
+        else if (clean.includes('direc') || clean.includes('domic')) colMap['direccion'] = idx;
+        else if (clean.includes('ciudad') || clean.includes('canton')) colMap['ciudad'] = idx;
+        else if (clean.includes('telef') || clean.includes('celul') || clean.includes('tlf')) colMap['telefono'] = idx;
+        else if (clean.includes('corte') || clean.includes('saldo_corte')) colMap['fec_corte_saldo'] = idx;
+        else if (clean.includes('tipo_deudor') || clean === 'deudor') colMap['tipo_deudor'] = idx;
+        else if (clean.includes('val_operacion') || clean.includes('val_op') || clean.includes('monto_concedido') || clean.includes('conced') || clean.includes('monto') || clean.includes('capital')) colMap['val_operacion'] = idx;
+        else if (clean.includes('num_operacion') || clean.includes('num_op') || clean.includes('num_credito') || clean === 'operacion' || clean === 'credito' || (clean.includes('operac') && !clean.includes('val_') && !clean.includes('fec_') && !clean.includes('estado_'))) colMap['num_operacion'] = idx;
+        else if (clean.includes('conces') || clean.includes('otorg') || clean.includes('fec_con')) colMap['fec_concesion'] = idx;
+        else if (clean.includes('xvencer') || clean.includes('x_vencer') || clean.includes('por_vencer')) colMap['val_xvencer'] = idx;
+        else if (clean.includes('vencid') && !clean.includes('dias') && !clean.includes('cuota') && !clean.includes('fec') && !clean.includes('cart')) colMap['val_vencido'] = idx;
+        else if (clean.includes('dem_jud') || clean.includes('demanda') || clean.includes('judicial')) colMap['val_dem_judicial'] = idx;
+        else if (clean.includes('castig') || clean.includes('cart_cast')) colMap['val_cart_castigada'] = idx;
+        else if (clean.includes('dias_venc') || clean.includes('dias_mora') || clean.includes('num_dias') || clean === 'dias') colMap['num_dias_vencido'] = idx;
+        else if (clean.includes('nacim')) colMap['fec_nacimiento'] = idx;
+        else if (clean.includes('refinanc') || clean.includes('deuda_ref')) colMap['deuda_refinanciada'] = idx;
+        else if (clean.includes('vencim') && !clean.includes('dias') && !clean.includes('cuota') && !clean.includes('val_')) colMap['fec_vencimiento'] = idx;
+        else if (clean.includes('reportado')) colMap['REPORTADO'] = idx;
+        else if (clean.includes('facturas')) colMap['FACTURAS_PAGADAS'] = idx;
+        else if (clean.includes('parroquia')) colMap['PARROQUIA'] = idx;
+        else if (clean.includes('email') || clean.includes('correo')) colMap['EMAIL'] = idx;
+        else if (clean.includes('genero') || clean.includes('sexo')) colMap['GENERO'] = idx;
+        else if (clean.includes('estado_civil') || clean.includes('civil')) colMap['ESTADO_CIVIL'] = idx;
+        else if (clean.includes('estado_operac')) colMap['ESTADO_OPERACION'] = idx;
+        else if (clean.includes('valor_ndi') || clean === 'ndi') colMap['VALOR_NDI'] = idx;
+        else if (clean.includes('pago_cuota') || clean.includes('fec_pago')) colMap['FECHA_PAGO_CUOTA'] = idx;
+        else if (clean.includes('cuotas_venc') || clean.includes('cuotas_mora')) colMap['num_cuotas_vencidas'] = idx;
+        else if (clean.includes('val_cuota') || clean === 'cuota') colMap['val_cuota'] = idx;
+        else if (clean.includes('period') || clean.includes('forma_pago')) colMap['periodicidad_pago'] = idx;
+        else if (clean.includes('garant')) colMap['tipo_garantia'] = idx;
+      });
     }
   }
 
+  // Auto-detect positional format if no header matched
+  let is28ColFormat = false;
+  if (!hasMappedHeader && rawLines.length > 0) {
+    const sampleParts = rawLines[0].split(delimiter).map(p => p.trim());
+    if (sampleParts.length >= 20 || (sampleParts[0] && ['c', 'r', 'p'].includes(sampleParts[0].toLowerCase()))) {
+      is28ColFormat = true;
+      phase1Details.push('Estructura detectada: Matriz oficial Equifax de 28 columnas.');
+    } else {
+      phase1Details.push('Estructura detectada: Formato nativo .gjm de 19 columnas.');
+    }
+  }
+
+  const getColVal = (parts: string[], field: string, default28Idx: number, default19Idx: number): string => {
+    if (colMap[field] !== undefined) {
+      return parts[colMap[field]] || '';
+    }
+    const idx = is28ColFormat ? default28Idx : default19Idx;
+    return idx >= 0 && idx < parts.length ? parts[idx] || '' : '';
+  };
+
   for (let i = startIndex; i < rawLines.length; i++) {
     const line = rawLines[i];
-    // Split by semicolon ;
-    const parts = line.split(';').map(p => p.trim().replace(/^["']|["']$/g, ''));
+    const parts = line.split(delimiter).map(p => p.trim().replace(/^["']|["']$/g, ''));
 
-    // Map 19 native fields
+    // 28-column format index map:
+    // 0: cod_tipo_id, 1: cod_id_sujeto, 2: nom_sujeto, 3: direccion, 4: ciudad, 5: telefono, 6: fec_corte_saldo,
+    // 7: tipo_deudor, 8: num_operacion, 9: fec_concesion, 10: val_operacion, 11: val_xvencer, 12: val_vencido,
+    // 13: val_dem_judicial, 14: val_cart_castigada, 15: num_dias_vencido, 16: fec_nacimiento, 17: deuda_refinanciada,
+    // 18: fec_vencimiento, 19: REPORTADO, 20: FACTURAS_PAGADAS, 21: PARROQUIA, 22: EMAIL, 23: GENERO,
+    // 24: ESTADO_CIVIL, 25: ESTADO_OPERACION, 26: VALOR_NDI, 27: FECHA_PAGO_CUOTA
+
+    // 19-column format index map:
+    // 0: cod_id_sujeto, 1: nom_sujeto, 2: fec_nacimiento, 3: telefono, 4: direccion, 5: num_operacion,
+    // 6: fec_concesion, 7: fec_vencimiento, 8: fec_corte_saldo, 9: monto_concedido, 10: val_xvencer,
+    // 11: val_vencido, 12: val_dem_judicial, 13: val_cart_castigada, 14: num_dias_vencido, 15: num_cuotas_vencidas,
+    // 16: val_cuota, 17: periodicidad_pago, 18: tipo_garantia
+
+    const rawId = getColVal(parts, 'cod_id_sujeto', 1, 0);
+    const rawType = getColVal(parts, 'cod_tipo_id', 0, -1);
+    const montoVal = parseNumberSafe(getColVal(parts, 'val_operacion', 10, 9));
+
     const rec: BuroRecord = {
-      cod_id_sujeto: parts[0] || '',
-      nom_sujeto: parts[1] || '',
-      fec_nacimiento: parts[2] || '',
-      telefono: parts[3] || '',
-      direccion: parts[4] || '',
-      num_operacion: parts[5] || '',
-      fec_concesion: parts[6] || '',
-      fec_vencimiento: parts[7] || '',
-      fec_corte_saldo: parts[8] || '',
-      monto_concedido: parseNumberSafe(parts[9]),
-      val_xvencer: parseNumberSafe(parts[10]),
-      val_vencido: parseNumberSafe(parts[11]),
-      val_dem_judicial: parseNumberSafe(parts[12]),
-      val_cart_castigada: parseNumberSafe(parts[13]),
-      num_dias_vencido: Math.round(parseNumberSafe(parts[14])),
-      num_cuotas_vencidas: Math.round(parseNumberSafe(parts[15])),
-      val_cuota: parseNumberSafe(parts[16]),
-      periodicidad_pago: parts[17] || '',
-      tipo_garantia: parts[18] || '',
-      VALOR_NDI: 0
+      cod_tipo_id: rawType || (rawId.length === 13 ? 'R' : 'C'),
+      cod_id_sujeto: rawId,
+      nom_sujeto: getColVal(parts, 'nom_sujeto', 2, 1),
+      direccion: getColVal(parts, 'direccion', 3, 4),
+      ciudad: getColVal(parts, 'ciudad', 4, -1),
+      telefono: getColVal(parts, 'telefono', 5, 3),
+      fec_corte_saldo: getColVal(parts, 'fec_corte_saldo', 6, 8),
+      tipo_deudor: getColVal(parts, 'tipo_deudor', 7, -1) || 'TITULAR',
+      num_operacion: getColVal(parts, 'num_operacion', 8, 5),
+      fec_concesion: getColVal(parts, 'fec_concesion', 9, 6),
+      val_operacion: montoVal,
+      monto_concedido: montoVal,
+      val_xvencer: parseNumberSafe(getColVal(parts, 'val_xvencer', 11, 10)),
+      val_vencido: parseNumberSafe(getColVal(parts, 'val_vencido', 12, 11)),
+      val_dem_judicial: parseNumberSafe(getColVal(parts, 'val_dem_judicial', 13, 12)),
+      val_cart_castigada: parseNumberSafe(getColVal(parts, 'val_cart_castigada', 14, 13)),
+      num_dias_vencido: Math.round(parseNumberSafe(getColVal(parts, 'num_dias_vencido', 15, 14))),
+      fec_nacimiento: getColVal(parts, 'fec_nacimiento', 16, 2),
+      deuda_refinanciada: parseNumberSafe(getColVal(parts, 'deuda_refinanciada', 17, -1)),
+      fec_vencimiento: getColVal(parts, 'fec_vencimiento', 18, 7),
+      num_cuotas_vencidas: Math.round(parseNumberSafe(getColVal(parts, 'num_cuotas_vencidas', -1, 15))),
+      val_cuota: parseNumberSafe(getColVal(parts, 'val_cuota', -1, 16)),
+      periodicidad_pago: getColVal(parts, 'periodicidad_pago', -1, 17),
+      tipo_garantia: getColVal(parts, 'tipo_garantia', -1, 18),
+      REPORTADO: getColVal(parts, 'REPORTADO', 19, -1) || 0,
+      FACTURAS_PAGADAS: getColVal(parts, 'FACTURAS_PAGADAS', 20, -1) || 0,
+      PARROQUIA: getColVal(parts, 'PARROQUIA', 21, -1),
+      EMAIL: getColVal(parts, 'EMAIL', 22, -1),
+      GENERO: getColVal(parts, 'GENERO', 23, -1),
+      ESTADO_CIVIL: getColVal(parts, 'ESTADO_CIVIL', 24, -1),
+      ESTADO_OPERACION: getColVal(parts, 'ESTADO_OPERACION', 25, -1),
+      VALOR_NDI: parseNumberSafe(getColVal(parts, 'VALOR_NDI', 26, -1)),
+      FECHA_PAGO_CUOTA: getColVal(parts, 'FECHA_PAGO_CUOTA', 27, -1) || 0
     };
     records.push(rec);
   }
@@ -224,45 +372,63 @@ export function processBuroFile(rawText: string): BuroProcessingResult {
   audits.push({
     phase: 1,
     name: 'Importación y Delimitación',
-    description: 'Carga y separación del archivo .gjm mediante delimitador punto y coma (;)',
+    description: `Carga y separación del archivo con delimitador '${delimiter}'`,
     status: 'COMPLETED',
     inputCount: totalRawRows,
     outputCount: records.length,
     details: [
-      `Se procesaron ${totalRawRows} líneas del archivo plano fuente.`,
-      `Se estructuraron ${records.length} registros nativos basados en 19 columnas delimitadas por ';'.`,
+      `Se procesaron ${totalRawRows} líneas del archivo fuente.`,
+      `Se estructuraron ${records.length} registros nativos.`,
       ...phase1Details
     ]
   });
 
   // ----------------------------------------------------
-  // FASE 2: TIPIFICACIÓN DE IDENTIFICADORES
+  // FASE 2: TIPIFICACIÓN Y DEPURACIÓN DE DATOS (EQUIFAX)
   // ----------------------------------------------------
   const phase2Input = records.length;
+  let cleanedPhonesCount = 0;
   records = records.map(r => {
-    // Preserve strings strictly, pad zeros if truncaed
+    // Preserve strings strictly, pad zeros if truncated
     let idStr = String(r.cod_id_sujeto || '').trim();
     if (/^\d{9}$/.test(idStr)) idStr = '0' + idStr;
     if (/^\d{12}$/.test(idStr)) idStr = '0' + idStr;
 
+    // Equifax Phone Validation (isNotDescPhone_TELEFONO / isRegexMatch_TELEFONO)
+    let rawPhone = String(r.telefono || '').trim().replace(/\D/g, '');
+    if (/^(\d)\1{6,}$/.test(rawPhone) || rawPhone.length < 7) {
+      cleanedPhonesCount++;
+      rawPhone = ''; // Clear repetitive/invalid phone according to Equifax rules
+    }
+
+    // Equifax Gender Validation (isRegexMatch_GENERO)
+    let rawGender = (r.GENERO || '').toString().trim().toUpperCase();
+    if (rawGender !== 'M' && rawGender !== 'F') {
+      rawGender = '';
+    }
+
     return {
       ...r,
+      cod_tipo_id: (r.cod_tipo_id || (idStr.length === 13 ? 'R' : 'C')).toUpperCase(),
       cod_id_sujeto: idStr,
-      telefono: String(r.telefono || '').trim(),
+      telefono: rawPhone,
+      GENERO: rawGender,
+      tipo_deudor: (r.tipo_deudor || 'TITULAR').toUpperCase(),
       num_operacion: String(r.num_operacion || '').trim()
     };
   });
 
   audits.push({
     phase: 2,
-    name: 'Tipificación de Identificadores',
-    description: 'Asignación estricta de formato texto a identificadores para conservar ceros a la izquierda',
-    status: 'COMPLETED',
+    name: 'Tipificación y Depuración Equifax',
+    description: 'Conservación de ceros iniciales en identificadores y depuración de teléfonos repetitivos',
+    status: cleanedPhonesCount > 0 ? 'WARNED' : 'COMPLETED',
     inputCount: phase2Input,
     outputCount: records.length,
     details: [
-      'Campos cod_id_sujeto, telefono y num_operacion tipificados como Texto plano.',
-      'Ceros iniciales preservados en códigos de identificación y operaciones.'
+      'Campos cod_id_sujeto, telefono y num_operacion tipificados estrictamente como Texto plano.',
+      'Ceros iniciales preservados en cédulas/RUCs de 10 o 13 dígitos.',
+      cleanedPhonesCount > 0 ? `Se depuraron ${cleanedPhonesCount} números de teléfono repetitivos (ej. 999999999) según regla Equifax (isNotDescPhone_TELEFONO).` : 'Todos los teléfonos evaluados cumplieron la regla de formato.'
     ]
   });
 
@@ -275,19 +441,20 @@ export function processBuroFile(rawText: string): BuroProcessingResult {
     fec_corte_saldo: parseAndFormatDate(r.fec_corte_saldo),
     fec_concesion: parseAndFormatDate(r.fec_concesion),
     fec_nacimiento: parseAndFormatDate(r.fec_nacimiento),
-    fec_vencimiento: parseAndFormatDate(r.fec_vencimiento)
+    fec_vencimiento: parseAndFormatDate(r.fec_vencimiento),
+    FECHA_PAGO_CUOTA: parseAndFormatDate(r.FECHA_PAGO_CUOTA)
   }));
 
   audits.push({
     phase: 3,
     name: 'Tipificación Cronológica',
-    description: 'Estandarización de fechas al formato Día-Mes-Año (DMA: DD/MM/YYYY)',
+    description: 'Estandarización de fechas al formato Año/Mes/Día (yyyy/MM/dd) sin marcas de hora',
     status: 'COMPLETED',
     inputCount: phase3Input,
     outputCount: records.length,
     details: [
-      'Normalización aplicada a fec_corte_saldo, fec_concesion, fec_nacimiento y fec_vencimiento.',
-      'Formato estandarizado: DD/MM/YYYY para compatibilidad con Equifax.'
+      'Normalización aplicada a fec_corte_saldo, fec_concesion, fec_nacimiento, fec_vencimiento y FECHA_PAGO_CUOTA.',
+      'Formato estandarizado: yyyy/MM/dd para compatibilidad estricta con macros de Equifax.'
     ]
   });
 
@@ -297,8 +464,8 @@ export function processBuroFile(rawText: string): BuroProcessingResult {
   const phase4Input = records.length;
   const cleanedPhase4 = records.filter(r => {
     const idClean = (r.cod_id_sujeto || '').trim();
-    // Must not be empty, and must have at least 5 digits
-    return idClean.length >= 5 && /[0-9]/.test(idClean);
+    // Must contain numeric digits and at least 3 characters
+    return idClean.length >= 3 && /[0-9]/.test(idClean);
   });
   ghostRowsRemoved = phase4Input - cleanedPhase4.length;
   records = cleanedPhase4;
@@ -368,10 +535,18 @@ export function processBuroFile(rawText: string): BuroProcessingResult {
   // FASE 7: LIMPIEZA DE CAMPOS OBLIGATORIOS
   // ----------------------------------------------------
   const phase7Input = records.length;
+  const defaultCorteDate = format(new Date(), 'dd/MM/yyyy');
+  let autoFilledCutDates = 0;
+
   const cleanedPhase7 = records.filter(r => {
     const hasId = !!(r.cod_id_sujeto && r.cod_id_sujeto.trim());
-    const hasFecCorte = !!(r.fec_corte_saldo && r.fec_corte_saldo.trim());
-    return hasId && hasFecCorte;
+    if (!hasId) return false;
+
+    if (!r.fec_corte_saldo || !r.fec_corte_saldo.trim()) {
+      r.fec_corte_saldo = defaultCorteDate;
+      autoFilledCutDates++;
+    }
+    return true;
   });
   mandatoryFieldsMissingRemoved = phase7Input - cleanedPhase7.length;
   records = cleanedPhase7;
@@ -379,14 +554,35 @@ export function processBuroFile(rawText: string): BuroProcessingResult {
   audits.push({
     phase: 7,
     name: 'Limpieza de Campos Obligatorios',
-    description: 'Depuración definitiva de registros con vacíos críticos en cod_id_sujeto o fec_corte_saldo',
-    status: mandatoryFieldsMissingRemoved > 0 ? 'WARNED' : 'COMPLETED',
+    description: 'Depuración de registros sin identificación y normalización de fecha de corte',
+    status: (mandatoryFieldsMissingRemoved > 0 || autoFilledCutDates > 0) ? 'WARNED' : 'COMPLETED',
     inputCount: phase7Input,
     outputCount: records.length,
     details: [
-      `Se depuraron ${mandatoryFieldsMissingRemoved} registros por falta de cédula/RUC o fecha de corte.`
+      `Se depuraron ${mandatoryFieldsMissingRemoved} registros por falta de cédula/RUC.`,
+      autoFilledCutDates > 0 ? `Se asignó la fecha de corte predeterminada (${defaultCorteDate}) a ${autoFilledCutDates} registros que carecían de ella.` : 'Todas las filas contaban con fecha de corte válida.'
     ]
   });
+
+  // Calculate Primary Cut Date for Output Filename: 2968_(FECHA_DE_CORTE)
+  let primaryCutDateStr = '';
+  for (const r of records) {
+    if (r.fec_corte_saldo && r.fec_corte_saldo.trim()) {
+      const formatted = parseAndFormatDate(r.fec_corte_saldo.trim());
+      if (formatted) {
+        primaryCutDateStr = formatted;
+        break;
+      }
+    }
+  }
+  if (!primaryCutDateStr) {
+    primaryCutDateStr = defaultCorteDate;
+  }
+
+  // Clean cut date digits for filename, e.g. "30/06/2026" -> "30062026"
+  const cleanCutDateDigits = primaryCutDateStr.replace(/\D/g, '') || format(new Date(), 'ddMMyyyy');
+  const principalFilename = `2968_${cleanCutDateDigits}.xlsx`;
+  const secondaryFilename = `Cedulas_Incompletas_${cleanCutDateDigits}.xlsx`;
 
   // ----------------------------------------------------
   // FASE 8: ALINEACIÓN DE MOROSIDAD
@@ -421,14 +617,15 @@ export function processBuroFile(rawText: string): BuroProcessingResult {
   // ----------------------------------------------------
   const phase9Input = records.length;
   records = records.map(r => {
-    const deudaTotal = (r.val_xvencer || 0) + (r.val_vencido || 0) + (r.val_dem_judicial || 0) + (r.val_cart_castigada || 0);
+    const calcDeuda = (r.val_xvencer || 0) + (r.val_vencido || 0) + (r.val_dem_judicial || 0) + (r.val_cart_castigada || 0);
+    const finalDeuda = calcDeuda > 0 ? calcDeuda : (r.monto_concedido || 0);
     return {
       ...r,
-      deuda_total: parseNumberSafe(deudaTotal.toFixed(2))
+      deuda_total: parseNumberSafe(finalDeuda.toFixed(2))
     };
   });
 
-  const activeRecords = records.filter(r => (r.deuda_total || 0) > 0);
+  const activeRecords = records.filter(r => (r.deuda_total || 0) > 0 || (r.monto_concedido || 0) > 0);
   inactiveAccountsRemoved = phase9Input - activeRecords.length;
   records = activeRecords;
 
@@ -515,20 +712,21 @@ export function processBuroFile(rawText: string): BuroProcessingResult {
   });
 
   // ----------------------------------------------------
-  // FASE 12: CONSOLIDACIÓN Y EXPORTACIÓN FINAL
+  // FASE 12: CONSOLIDACIÓN Y EXPORTACIÓN FINAL (2968_FECHA_DE_CORTE)
   // ----------------------------------------------------
   const totalDeudaProcessed = principalRecords.reduce((sum, r) => sum + (r.deuda_total || 0), 0);
 
   audits.push({
     phase: 12,
     name: 'Consolidación y Exportación Final',
-    description: 'Estructuración final de la matriz de cartera limpia lista para Equifax',
+    description: 'Generación del archivo final en estricto cumplimiento del formato de nombre 2968_(FECHA_DE_CORTE)',
     status: 'COMPLETED',
     inputCount: principalRecords.length,
     outputCount: principalRecords.length,
     details: [
       `Base limpia consolidada con ${principalRecords.length} filas y monto total por $ ${totalDeudaProcessed.toLocaleString('es-EC', { minimumFractionDigits: 2 })}.`,
-      `Generación habilitada para libros Excel: ${principalFilename} y ${secondaryFilename}.`
+      `Nombre oficial del archivo principal generado: ${principalFilename}.`,
+      `Nombre del archivo de secundario / incompletos: ${secondaryFilename}.`
     ]
   });
 
@@ -570,7 +768,7 @@ export function exportBuroToExcel(records: BuroRecord[], filename: string, isErr
         'CLIENTE / SUJETO': r.nom_sujeto,
         'NÚMERO_OPERACIÓN': String(r.num_operacion),
         'TELÉFONO': String(r.telefono),
-        'FECHA_CORTE': r.fec_corte_saldo,
+        'FECHA_CORTE': parseAndFormatDate(r.fec_corte_saldo),
         'MONTO_CONCEDIDO': r.monto_concedido,
         'VALOR_X_VENCER': r.val_xvencer,
         'VALOR_VENCIDO': r.val_vencido,
@@ -580,48 +778,91 @@ export function exportBuroToExcel(records: BuroRecord[], filename: string, isErr
     }
 
     return {
-      'cod_id_sujeto': String(r.cod_id_sujeto),
-      'nom_sujeto': r.nom_sujeto,
-      'fec_nacimiento': r.fec_nacimiento,
-      'telefono': String(r.telefono),
-      'direccion': r.direccion,
-      'num_operacion': String(r.num_operacion),
-      'fec_concesion': r.fec_concesion,
-      'fec_vencimiento': r.fec_vencimiento,
-      'fec_corte_saldo': r.fec_corte_saldo,
-      'monto_concedido': r.monto_concedido,
-      'val_xvencer': r.val_xvencer,
-      'val_vencido': r.val_vencido,
-      'val_dem_judicial': r.val_dem_judicial,
-      'val_cart_castigada': r.val_cart_castigada,
-      'num_dias_vencido': r.num_dias_vencido,
-      'num_cuotas_vencidas': r.num_cuotas_vencidas,
-      'val_cuota': r.val_cuota,
-      'periodicidad_pago': r.periodicidad_pago,
-      'tipo_garantia': r.tipo_garantia,
-      'REPORTADO': r.REPORTADO || '',
-      'FACTURAS_PAGADAS': r.FACTURAS_PAGADAS || '',
+      'cod_tipo_id': r.cod_tipo_id || (String(r.cod_id_sujeto).length === 13 ? 'R' : 'C'),
+      'cod_id_sujeto': String(r.cod_id_sujeto || ''),
+      'nom_sujeto': r.nom_sujeto || '',
+      'direccion': r.direccion || '',
+      'ciudad': r.ciudad || '',
+      'telefono': String(r.telefono || ''),
+      'fec_corte_saldo': parseAndFormatDate(r.fec_corte_saldo),
+      'tipo_deudor': r.tipo_deudor || 'TITULAR',
+      'num_operacion': String(r.num_operacion || ''),
+      'fec_concesion': parseAndFormatDate(r.fec_concesion),
+      'val_operacion': r.val_operacion ?? r.monto_concedido ?? 0,
+      'val_xvencer': r.val_xvencer ?? 0,
+      'val_vencido': r.val_vencido ?? 0,
+      'val_dem_judicial': r.val_dem_judicial ?? 0,
+      'val_cart_castigada': r.val_cart_castigada ?? 0,
+      'num_dias_vencido': r.num_dias_vencido ?? 0,
+      'fec_nacimiento': parseAndFormatDate(r.fec_nacimiento),
+      'deuda_refinanciada': r.deuda_refinanciada ?? 0,
+      'fec_vencimiento': parseAndFormatDate(r.fec_vencimiento),
+      'REPORTADO': r.REPORTADO ?? 0,
+      'FACTURAS_PAGADAS': r.FACTURAS_PAGADAS ?? 0,
       'PARROQUIA': r.PARROQUIA || '',
       'EMAIL': r.EMAIL || '',
       'GENERO': r.GENERO || '',
       'ESTADO_CIVIL': r.ESTADO_CIVIL || '',
       'ESTADO_OPERACION': r.ESTADO_OPERACION || '',
-      'FECHA_PAGO_CUOTA': r.FECHA_PAGO_CUOTA || '',
-      'VALOR_NDI': 0
+      'VALOR_NDI': r.VALOR_NDI ?? 0,
+      'FECHA_PAGO_CUOTA': parseAndFormatDate(r.FECHA_PAGO_CUOTA)
     };
   });
 
   const worksheet = XLSX.utils.json_to_sheet(exportData);
 
-  // Set explicit string cell type ('s') for identifier columns to preserve leading zeros in Excel!
+  // Set explicit string cell type ('s') for identifiers AND date columns to ensure 10-character yyyy/MM/dd strings for Excel/VBA!
   const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1:A1');
+  const textCols = isErrorFile ? [1, 5, 6] : [1, 5, 8]; // cod_id_sujeto, telefono, num_operacion
+  const dateCols = isErrorFile ? [7] : [6, 9, 16, 18, 27]; // fec_corte_saldo, fec_concesion, fec_nacimiento, fec_vencimiento, FECHA_PAGO_CUOTA
+  const numCols2Dec = isErrorFile ? [8, 9, 10, 11] : [10, 11, 12, 13, 14, 17, 26]; // val_operacion, val_xvencer, val_vencido, val_dem_judicial, val_cart_castigada, deuda_refinanciada, VALOR_NDI
+  const numColsInt = isErrorFile ? [12] : [15, 19, 20]; // num_dias_vencido, REPORTADO, FACTURAS_PAGADAS
+
   for (let R = range.s.r + 1; R <= range.e.r; ++R) {
-    // Column 0 is cod_id_sujeto in main file or Cédula/RUC in error file
-    const cellAddress = XLSX.utils.encode_cell({ r: R, c: isErrorFile ? 1 : 0 });
-    if (worksheet[cellAddress]) {
-      worksheet[cellAddress].t = 's'; // Force string type
-      worksheet[cellAddress].z = '@'; // Force text format
-    }
+    // String formatting for IDs and phone numbers
+    textCols.forEach(cIdx => {
+      const cellAddress = XLSX.utils.encode_cell({ r: R, c: cIdx });
+      if (worksheet[cellAddress]) {
+        worksheet[cellAddress].t = 's'; // Force string type
+        worksheet[cellAddress].z = '@'; // Force text format
+      }
+    });
+
+    // Date formatting (Force String 's' type with yyyy/MM/dd format so Len(cad) is 10 and skips VBA formatoFechaa error)
+    dateCols.forEach(cIdx => {
+      const cellAddress = XLSX.utils.encode_cell({ r: R, c: cIdx });
+      const cell = worksheet[cellAddress];
+      if (cell && cell.v !== undefined && cell.v !== null && cell.v !== '') {
+        const strVal = parseAndFormatDate(cell.v);
+        cell.v = strVal; // String "yyyy/MM/dd" (10 chars)
+        cell.t = 's';    // String cell type in Excel
+        cell.z = '@';    // Text format
+      }
+    });
+
+    // Pure Numeric formatting for Monetary values (Force Number 'n' type with 2 decimals)
+    numCols2Dec.forEach(cIdx => {
+      const cellAddress = XLSX.utils.encode_cell({ r: R, c: cIdx });
+      const cell = worksheet[cellAddress];
+      if (cell) {
+        const rawNum = typeof cell.v === 'number' ? cell.v : parseNumberSafe(cell.v);
+        cell.v = Math.round(rawNum * 100) / 100;
+        cell.t = 'n';    // Native numeric type in Excel
+        cell.z = '0.00'; // Standard 2 decimals format
+      }
+    });
+
+    // Integer numeric formatting
+    numColsInt.forEach(cIdx => {
+      const cellAddress = XLSX.utils.encode_cell({ r: R, c: cIdx });
+      const cell = worksheet[cellAddress];
+      if (cell) {
+        const rawNum = typeof cell.v === 'number' ? cell.v : parseNumberSafe(cell.v);
+        cell.v = Math.round(rawNum);
+        cell.t = 'n';    // Native numeric type
+        cell.z = '0';    // Integer format
+      }
+    });
   }
 
   // Auto column widths
@@ -635,4 +876,66 @@ export function exportBuroToExcel(records: BuroRecord[], filename: string, isErr
 
   // Trigger download
   XLSX.writeFile(workbook, filename);
+}
+
+/**
+ * Generates and downloads a .gjm text file formatted with semicolon delimiter matching Equifax 28-column matrix
+ */
+export function exportBuroToGjm(records: BuroRecord[], filename: string) {
+  if (!records || records.length === 0) return;
+
+  const header = [
+    'cod_tipo_id', 'cod_id_sujeto', 'nom_sujeto', 'direccion', 'ciudad',
+    'telefono', 'fec_corte_saldo', 'tipo_deudor', 'num_operacion', 'fec_concesion',
+    'val_operacion', 'val_xvencer', 'val_vencido', 'val_dem_judicial', 'val_cart_castigada',
+    'num_dias_vencido', 'fec_nacimiento', 'deuda_refinanciada', 'fec_vencimiento',
+    'REPORTADO', 'FACTURAS_PAGADAS', 'PARROQUIA', 'EMAIL', 'GENERO',
+    'ESTADO_CIVIL', 'ESTADO_OPERACION', 'VALOR_NDI', 'FECHA_PAGO_CUOTA'
+  ].join(';');
+
+  const lines = records.map(r => {
+    const row = [
+      r.cod_tipo_id || (String(r.cod_id_sujeto).length === 13 ? 'R' : 'C'),
+      String(r.cod_id_sujeto || ''),
+      r.nom_sujeto || '',
+      r.direccion || '',
+      r.ciudad || '',
+      String(r.telefono || ''),
+      parseAndFormatDate(r.fec_corte_saldo),
+      r.tipo_deudor || 'TITULAR',
+      String(r.num_operacion || ''),
+      parseAndFormatDate(r.fec_concesion),
+      r.val_operacion ?? r.monto_concedido ?? 0,
+      r.val_xvencer ?? 0,
+      r.val_vencido ?? 0,
+      r.val_dem_judicial ?? 0,
+      r.val_cart_castigada ?? 0,
+      r.num_dias_vencido ?? 0,
+      parseAndFormatDate(r.fec_nacimiento),
+      r.deuda_refinanciada ?? 0,
+      parseAndFormatDate(r.fec_vencimiento),
+      r.REPORTADO ?? 0,
+      r.FACTURAS_PAGADAS ?? 0,
+      r.PARROQUIA || '',
+      r.EMAIL || '',
+      r.GENERO || '',
+      r.ESTADO_CIVIL || '',
+      r.ESTADO_OPERACION || '',
+      r.VALOR_NDI ?? 0,
+      parseAndFormatDate(r.FECHA_PAGO_CUOTA)
+    ];
+    return row.join(';');
+  });
+
+  const content = [header, ...lines].join('\r\n');
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const gjmFilename = filename.endsWith('.gjm') ? filename : filename.replace(/\.xlsx$/i, '.gjm');
+  a.download = gjmFilename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }

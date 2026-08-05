@@ -36,6 +36,7 @@ import { db } from '../firebase';
 import { collection, query, where, getDocs, updateDoc, doc } from 'firebase/firestore';
 import { CURRENT_VERSION } from '../lib/changelog';
 import { isSuperAdminEmail, cn } from '../lib/utils';
+ 
 
 interface DockItemProps {
   item: any;
@@ -240,7 +241,7 @@ const DockItem: React.FC<DockItemProps> = ({
 
 export default function Layout() {
   const { settings } = useSettings();
-  const { user, profile, loading, logout, isAdmin, impersonatedUser, impersonateUser, originalUser } = useAuth();
+  const { user, profile, loading, logout, isAdmin, isSuperAdmin, impersonatedUser, impersonateUser, originalUser } = useAuth();
   const location = useLocation();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
@@ -280,9 +281,10 @@ export default function Layout() {
     }
   };
 
-  // Silent automatic migration of unassigned checks to Almacenes Derick on startup
+  // Silent automatic migration of unassigned checks and employees to Almacenes Derick on startup
   useEffect(() => {
     let active = true;
+    if (!isSuperAdmin) return;
     const runSilentMigration = async () => {
       try {
         const checksQ = query(collection(db, 'checks'));
@@ -409,6 +411,7 @@ export default function Layout() {
           subItems: [
             { name: 'Ingreso Cheques', href: '/entry', icon: FilePlus },
             { name: 'Consultas', href: '/search', icon: Search },
+            { name: 'Buró de Crédito', href: '/buro', icon: FileSpreadsheet },
           ]
         },
         {

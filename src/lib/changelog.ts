@@ -11,6 +11,160 @@ export interface ChangelogRelease {
 
 export const staticChangelog: ChangelogRelease[] = [
   {
+    version: "4.28.0",
+    date: new Date().toISOString(),
+    changes: [
+      "Asignación Directa y Eliminación de Migración Automática de Empleados: Se eliminó el script de inicio que reasignaba automáticamente los empleados a Almacenes Derick. A partir de esta versión, todo empleado registrado por una empresa mantendrá su asignación directa a la empresa creadora sin requerir intervención del Superadministrador."
+    ]
+  },
+  {
+    version: "4.27.4",
+    date: new Date().toISOString(),
+    changes: [
+      "Filtrado por Empresa en Consulta de Presupuestos (Employees): Se incluyó la restricción `where('enterpriseId', '==', targetEntId)` en la consulta de presupuestos del módulo de Empleados y la asignación del ID de empresa al guardar, resolviendo el error de permisos 'Missing or insufficient permissions'."
+    ]
+  },
+  {
+    version: "4.27.3",
+    date: new Date().toISOString(),
+    changes: [
+      "Exportación e Inyección Global de isSuperAdmin en Contexto de Autenticación: Se añadió la propiedad 'isSuperAdmin' al AuthContext para asegurar su disponibilidad en el Layout principal y resolver la excepción en tiempo de ejecución de variable no definida."
+    ]
+  },
+  {
+    version: "4.27.2",
+    date: new Date().toISOString(),
+    changes: [
+      "Protección de Permisos Firestore en Consultas de Empleados: Se restringió la consulta directa sobre la colección 'users' únicamente para cuentas SuperAdmin o bajo captura segura de excepciones. Esto resuelve los errores de permisos (Missing or insufficient permissions) al cargar la lista de personal y presupuestos con cuentas regulares."
+    ]
+  },
+  {
+    version: "4.27.1",
+    date: new Date().toISOString(),
+    changes: [
+      "Manejo Silencioso de Cierre de Ventana Google Auth: Se capturó adecuadamente el evento 'auth/popup-closed-by-user' para evitar mostrar errores o banners no deseados cuando el usuario cancela o cierra la ventana emergente de autenticación."
+    ]
+  },
+  {
+    version: "4.27.0",
+    date: new Date().toISOString(),
+    changes: [
+      "Migración de Empleados Existentes a Almacenes Derick: Todos los empleados registrados con anterioridad en el sistema fueron asignados y vinculados automáticamente a la empresa matriz 'Almacenes Derick'.",
+      "Regla de Registro por Correo como Empresa Independiente: Todo nuevo usuario que se registra mediante correo electrónico es configurado de forma predeterminada como una Empresa independiente.",
+      "Asistente Guiado de Vinculación (SuperAdmin): Incorporación de un Wizard modal de 4 pasos en Administración de Usuarios que permite al SuperAdministrador convertir y asignar usuarios registrados por correo como empleados con cargo específico a una empresa matriz.",
+      "Creación Interna de Empleados por Empresas: Las empresas pueden crear sus propios empleados directamente en la plataforma (sin requerir correo electrónico) quedando asignados automáticamente a su cuenta.",
+      "Unificación de Listas y Coexistencia Operativa: Integración unificada de empleados internos y vinculados por correo en los módulos de Directorio Comercial y Presupuestos Mensuales."
+    ]
+  },
+  {
+    version: "4.26.0",
+    date: new Date().toISOString(),
+    changes: [
+      "Optimización de Consultas de Respaldos (Exportación JSON/Excel): Se actualizaron las consultas de Firestore en la sección de Configuración para filtrar explícitamente por el identificador de empresa/usuario.",
+      "Compatibilidad con Reglas de Seguridad en Producción: Garantiza que la exportación de copias de seguridad se complete exitosamente sin ser bloqueada por permisos en entornos de producción desplegados."
+    ]
+  },
+  {
+    version: "4.25.0",
+    date: new Date().toISOString(),
+    changes: [
+      "Consolidación de Rol Supervisor de Cobranza: El total recaudado y efectivo retenido del Supervisor de Cobranza ahora refleja automáticamente la sumatoria global de todas las cobranzas del equipo.",
+      "Restricción de Registro Individual: Se excluyó al Supervisor de Cobranza del formulario 'Nueva Cobranza' para evitar la asignación de cobranzas individuales a dicho rol.",
+      "Desglose Consolidado: Al expandir la tarjeta del Supervisor de Cobranza se muestra el detalle con el nombre de cada cobrador y una etiqueta distintiva de sumatoria consolidada."
+    ]
+  },
+  {
+    version: "4.24.0",
+    date: new Date().toISOString(),
+    changes: [
+      "Aislamiento Estricto Multitenant durante Simulación e Importación: Se eliminaron los fallbacks globales y las reasignaciones automáticas hacia cuentas superadministradoras.",
+      "Garantía de Cuentas Limpias: Todo usuario nuevo o simulado que no tenga registros importados se mantendrá en estado completamente limpio (0 registros) sin heredar ni reasignar empleados, ventas, cobranzas o presupuestos de otros usuarios.",
+      "Comportamiento de Simulación Preciso: Las acciones realizadas durante la simulación de sesión pertenecen y se guardan única y exclusivamente bajo el id del usuario simulado."
+    ]
+  },
+  {
+    version: "4.23.1",
+    date: new Date().toISOString(),
+    changes: [
+      "Solución al Error de Reconciliación DOM 'insertBefore': Aislamiento de nodos de texto en etiquetas 'span' dentro del módulo de Cobranzas y modales, previniendo choques con extensiones de traducción automática del navegador.",
+      "Sincronización Automática de Mes al Ingresar Cobranza Anterior: Al registrar o editar una cobranza con fecha correspondiente a un mes anterior, el sistema cambia automáticamente el filtro visual del mes para reflejar y mostrar inmediatamente la cobranza guardada.",
+      "Recuperación Amigable en ErrorBoundary: Incorporación del botón 'Reintentar Acción' en la pantalla de captura de excepciones para restaurar la interfaz sin obligar al usuario a recargar la página completa."
+    ]
+  },
+  {
+    version: "4.23.0",
+    date: new Date().toISOString(),
+    changes: [
+      "Diagnóstico y Corrección de Inflación de Valores Moneda: Identificación de la causa raíz de la variación de montos (donde $560K pasó a $5.84M en la macro Equifax).",
+      "Tipificación Numérica Nativa en Celdas Excel: Aplicación de celda tipo 'n' (Native Number) con formato estándar '0.00' para todas las columnas de valor monetario (val_operacion, val_xvencer, val_vencido, val_dem_judicial, val_cart_castigada, deuda_refinanciada, VALOR_NDI).",
+      "Eliminación de Advertencias 'Número como Texto': Eliminación completa de alertas de texto y triángulos verdes en Excel, permitiendo que la fórmula =SUMA(...) opere de forma nativa y evitando multiplicaciones indebidas durante la ejecución de la Macro Equifax."
+    ]
+  },
+  {
+    version: "4.22.3",
+    date: new Date().toISOString(),
+    changes: [
+      "Análisis exhaustivo del código VBA de la Macro oficial Equifax (MACRO_SICOM_v2): Identificación del origen exacto del 'Error 13: No coinciden los tipos' en la función 'formatoFechaa'.",
+      "Normalización Estricta de Exportación Excel: Aplicación obligatoria de parseAndFormatDate en todas las columnas de fecha (fec_corte_saldo, fec_concesion, fec_nacimiento, fec_vencimiento, FECHA_PAGO_CUOTA) garantizando cadenas de exactamente 10 caracteres ('yyyy/MM/dd').",
+      "Omisión Total de Subrutina VBA conflictiva: Al ser celdas de texto plano de 10 caracteres, la condición 'If Len(cad) >= 11' de la macro se evalúa como Falsa, evitando por completo la casting de fecha que causaba el fallo."
+    ]
+  },
+  {
+    version: "4.22.2",
+    date: new Date().toISOString(),
+    changes: [
+      "Solución Definitiva Error 13 Macro Equifax (Len >= 11): Exportación de fechas en celdas de texto estricto ('s') con longitud exacta de 10 caracteres ('yyyy/MM/dd').",
+      "Prevención de Ejecución de Subrutina VBA 'formatoFechaa': Al garantizar Len(cad) = 10 en celdas de fecha, la macro de Equifax omite automáticamente la conversión de fecha-hora que provocaba el fallo 'Error 13: No coinciden los tipos' en Excel."
+    ]
+  },
+  {
+    version: "4.22.1",
+    date: new Date().toISOString(),
+    changes: [
+      "Corrección de Incompatibilidad con Macro Equifax (Error 13 Tipo No Coinciden): Depuración estricta de componentes de hora/minuto en todas las columnas de fecha (fec_corte_saldo, fec_concesion, fec_nacimiento, fec_vencimiento, FECHA_PAGO_CUOTA).",
+      "Asignación Explícita de Formato 'Fecha Corta' en Excel: Las celdas de fechas en el archivo .xlsx generado se exportan formalmente bajo el tipo y formato 'yyyy/mm/dd' (Fecha Corta), eliminando el formato 'General' que provocaba el fallo de conversión en VBA."
+    ]
+  },
+  {
+    version: "4.22.0",
+    date: new Date().toISOString(),
+    changes: [
+      "Estructura de Nombre Oficial 2968_(FECHA_DE_CORTE): Implementado el cálculo dinámico del nombre del archivo principal de salida en formato '2968_DDMMYYYY.xlsx' (extraído de fec_corte_saldo del lote) y 'Cedulas_Incompletas_DDMMYYYY.xlsx'.",
+      "Incorporación de Reglas de Validación Equifax: Añadida la depuración estricta de números telefónicos repetitivos (ej. 999999999) y la validación de género (M/F) según la Guía de Errores Equifax.",
+      "Soporte Dual de Exportación (.xlsx y .gjm): Añadida la exportación directa en formato de texto plano delimitado por punto y coma (.gjm) con codificación UTF-8 preservando ceros a la izquierda."
+    ]
+  },
+  {
+    version: "4.21.2",
+    date: new Date().toISOString(),
+    changes: [
+      "Corrección de Mapeo del Número de Operación (CRED-XXXXXXX): Se corrigió la regla de precedencia en la detección de cabeceras para evitar que la columna 'val_operacion' sobrescribiera el campo 'num_operacion', preservando intactos los códigos alfanuméricos de operación (ej. CRED-0506140) y asegurando su formato de texto en las exportaciones a Excel."
+    ]
+  },
+  {
+    version: "4.21.1",
+    date: new Date().toISOString(),
+    changes: [
+      "Secuencia Oficial de 28 Columnas de Equifax: Se ajustó el motor de parsing y exportación Excel para respetar exactamente el orden secuencial de las 28 columnas de la matriz oficial de Equifax (cod_tipo_id, cod_id_sujeto, nom_sujeto, direccion, ciudad, telefono, fec_corte_saldo, tipo_deudor, num_operacion, fec_concesion, val_operacion, val_xvencer, val_vencido, val_dem_judicial, val_cart_castigada, num_dias_vencido, fec_nacimiento, deuda_refinanciada, fec_vencimiento, REPORTADO, FACTURAS_PAGADAS, PARROQUIA, EMAIL, GENERO, ESTADO_CIVIL, ESTADO_OPERACION, VALOR_NDI, FECHA_PAGO_CUOTA)."
+    ]
+  },
+  {
+    version: "4.21.0",
+    date: new Date().toISOString(),
+    changes: [
+      "Compatibilidad Multiformato y Delimitación Flexible en Buró: Se añadió soporte nativo para importar archivos Excel (.xlsx, .xls) convirtiéndolos automáticamente a la estructura requerida, así como detección inteligente de delimitadores (;, coma, tabulación, tubería) y mapeo dinámico por nombres de columnas en la cabecera.",
+      "Asignación Automatizada de Fecha de Corte y Tolerancia de Cartera: Se implementó la asignación automática de fecha de corte predeterminada (DD/MM/YYYY) cuando el archivo fuente carece de ella, evitando la eliminación masiva de registros en la Fase 7, y se flexibilizó el cálculo de deudas activas en la Fase 9."
+    ]
+  },
+  {
+    version: "4.20.0",
+    date: new Date().toISOString(),
+    changes: [
+      "Rehabilitación del Módulo de Buró de Crédito: Se reincorporó la navegación y enrutamiento hacia la pestaña de Buró de Crédito (/buro) dentro del menú Finanzas, permitiendo procesar y estructurar la cartera mediante el motor de validación Módulo 10 de Equifax, auditoría en 12 fases y exportación de archivos limpios e incompletos.",
+      "Reglas de Seguridad para Registros del Buró: Se habilitó el acceso seguro en Firestore para la colección 'buro_logs' vinculada al usuario/empresa actual."
+    ]
+  },
+  {
     version: "4.19.3",
     date: new Date().toISOString(),
     changes: [

@@ -85,13 +85,12 @@ export default function SalesTab() {
       const invList = invSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as WarehouseInventory));
       setInventories(invList);
 
-      // Fetch sellers (employees with role 'vendedor' or 'ambos')
-      // Supports filtering by enterprise, but also fetches unassigned for backward compatibility
-      const empSnap = await getDocs(collection(db, 'employees'));
+      // Fetch sellers (employees with role 'vendedor' or 'ambos') belonging to current enterprise
+      const empQ = query(collection(db, 'employees'), where('enterpriseId', '==', currentEnterpriseId));
+      const empSnap = await getDocs(empQ);
       const empList = empSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Employee));
       const filteredSellers = empList.filter(emp => 
-        (emp.role === 'vendedor' || emp.role === 'ambos') && 
-        (emp.enterpriseId === currentEnterpriseId || (!emp.enterpriseId && (!emp.userId || emp.userId === currentEnterpriseId)))
+        (emp.role === 'vendedor' || emp.role === 'ambos')
       );
       setSellers(filteredSellers);
       if (filteredSellers.length > 0 && !sellerId) {

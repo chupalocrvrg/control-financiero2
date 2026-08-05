@@ -11,6 +11,13 @@ export interface ChangelogRelease {
 
 export const staticChangelog: ChangelogRelease[] = [
   {
+    version: "4.28.1",
+    date: new Date().toISOString(),
+    changes: [
+      "Optimización de Consultas de Empleados en Pestaña de Ventas/Inventario: Se aplicó un filtro estricto por `enterpriseId` en `SalesTab.tsx` para garantizar un aislamiento multicuentas riguroso de vendedores en todos los módulos."
+    ]
+  },
+  {
     version: "4.28.0",
     date: new Date().toISOString(),
     changes: [

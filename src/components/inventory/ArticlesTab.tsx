@@ -454,20 +454,20 @@ if (!formData.category.trim()) {
                 )}
                 {/* Nombre del Artículo Generado Automáticamente */}
                 <div>
-                  <label className="text-[10px] font-black text-neutral-400 uppercase tracking-widest block mb-1.5">Nombre del Artículo (Automático)</label>
+                  <label className="text-[10px] font-black text-neutral-700 dark:text-neutral-300 uppercase tracking-widest block mb-1.5">Nombre del Artículo (Automático)</label>
                   <input
                     type="text"
                     readOnly
                     placeholder="Categoría + Marca + Modelo + Código de Barras"
                     value={`${formData.category.trim()} ${formData.brand.trim()} ${formData.model.trim()}${formData.barcode.trim() ? ' ' + formData.barcode.trim() : ''}`.trim().replace(/\s+/g, ' ')}
-                    className="w-full px-4 py-3 bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200 dark:border-neutral-700 rounded-xl text-sm outline-none text-neutral-500 dark:text-neutral-400 cursor-not-allowed uppercase font-bold"
+                    className="w-full px-4 py-3 bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-300 dark:border-neutral-700 rounded-xl text-sm outline-none text-neutral-800 dark:text-neutral-200 placeholder:text-neutral-500 dark:placeholder:text-neutral-400 cursor-not-allowed uppercase font-bold"
                   />
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {/* Categoría (Predictivo) */}
                   <div>
-                    <label className="text-[10px] font-black text-neutral-400 uppercase tracking-widest block mb-1.5">Categoría *</label>
+                    <label className="text-[10px] font-black text-neutral-700 dark:text-neutral-300 uppercase tracking-widest block mb-1.5">Categoría *</label>
                     <input
                       type="text"
                       required
@@ -475,7 +475,7 @@ if (!formData.category.trim()) {
                       placeholder="Ej. Cocinas, Parlantes, Neveras..."
                       value={formData.category}
                       onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                      className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 text-neutral-900 dark:text-neutral-50 transition-all uppercase"
+                      className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-xl text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 text-neutral-900 dark:text-neutral-50 placeholder:text-neutral-500 dark:placeholder:text-neutral-400 transition-all uppercase"
                     />
                     <datalist id="categories-list">
                       {uniqueCategories.map(cat => (
@@ -486,7 +486,7 @@ if (!formData.category.trim()) {
 
                   {/* Marca (Predictivo) */}
                   <div>
-                    <label className="text-[10px] font-black text-neutral-400 uppercase tracking-widest block mb-1.5">Marca *</label>
+                    <label className="text-[10px] font-black text-neutral-700 dark:text-neutral-300 uppercase tracking-widest block mb-1.5">Marca *</label>
                     <input
                       type="text"
                       required
@@ -494,7 +494,7 @@ if (!formData.category.trim()) {
                       placeholder="Ej. Samsung, LG, Indurama..."
                       value={formData.brand}
                       onChange={(e) => setFormData({ ...formData, brand: e.target.value })}
-                      className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 text-neutral-900 dark:text-neutral-50 transition-all uppercase"
+                      className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-xl text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 text-neutral-900 dark:text-neutral-50 placeholder:text-neutral-500 dark:placeholder:text-neutral-400 transition-all uppercase"
                     />
                     <datalist id="brands-list">
                       {uniqueBrands.map(brand => (
@@ -507,7 +507,7 @@ if (!formData.category.trim()) {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {/* Modelo (Predictivo) */}
                   <div>
-                    <label className="text-[10px] font-black text-neutral-400 uppercase tracking-widest block mb-1.5">Modelo *</label>
+                    <label className="text-[10px] font-black text-neutral-700 dark:text-neutral-300 uppercase tracking-widest block mb-1.5">Modelo *</label>
                     <input
                       type="text"
                       required
@@ -515,7 +515,7 @@ if (!formData.category.trim()) {
                       placeholder="Ej. Premium Class X, EcoPlus..."
                       value={formData.model}
                       onChange={(e) => setFormData({ ...formData, model: e.target.value })}
-                      className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 text-neutral-900 dark:text-neutral-50 transition-all uppercase"
+                      className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-xl text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 text-neutral-900 dark:text-neutral-50 placeholder:text-neutral-500 dark:placeholder:text-neutral-400 transition-all uppercase"
                     />
                     <datalist id="models-list">
                       {uniqueModels.map(model => (
@@ -526,13 +526,13 @@ if (!formData.category.trim()) {
 
                   {/* Código de barras (Opcional) */}
                   <div>
-                    <label className="text-[10px] font-black text-neutral-400 uppercase tracking-widest block mb-1.5">Código de Barras (Opcional)</label>
+                    <label className="text-[10px] font-black text-neutral-700 dark:text-neutral-300 uppercase tracking-widest block mb-1.5">Código de Barras (Opcional)</label>
                     <input
                       type="text"
                       placeholder="Escanee o digite código"
                       value={formData.barcode}
                       onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
-                      className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 text-neutral-900 dark:text-neutral-50 transition-all uppercase font-mono"
+                      className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-xl text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 text-neutral-900 dark:text-neutral-50 placeholder:text-neutral-500 dark:placeholder:text-neutral-400 transition-all uppercase font-mono"
                     />
                   </div>
                 </div>
@@ -547,7 +547,7 @@ if (!formData.category.trim()) {
                         onChange={(e) => setFormData({ ...formData, requiresSeries: e.target.checked })}
                         className="w-4 h-4 text-indigo-600 rounded border-neutral-300 focus:ring-indigo-500"
                       />
-                      <span className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">Requerir Series / Seriales</span>
+                      <span className="text-[10px] font-black text-neutral-700 dark:text-neutral-300 uppercase tracking-widest">Requerir Series / Seriales</span>
                     </label>
                     {formData.requiresSeries && (
                       <textarea
@@ -555,14 +555,14 @@ if (!formData.category.trim()) {
                         value={formData.seriesInput}
                         onChange={(e) => setFormData({ ...formData, seriesInput: e.target.value })}
                         rows={3}
-                        className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 text-neutral-900 dark:text-neutral-50 transition-all uppercase font-mono"
+                        className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-xl text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 text-neutral-900 dark:text-neutral-50 placeholder:text-neutral-500 dark:placeholder:text-neutral-400 transition-all uppercase font-mono"
                       />
                     )}
                   </div>
 
                   {/* Stock Mínimo Alerta */}
                   <div>
-                    <label className="text-[10px] font-black text-neutral-400 uppercase tracking-widest block mb-1.5">Mínimo para Alerta *</label>
+                    <label className="text-[10px] font-black text-neutral-700 dark:text-neutral-300 uppercase tracking-widest block mb-1.5">Mínimo para Alerta *</label>
                     <input
                       type="number"
                       required
@@ -570,21 +570,21 @@ if (!formData.category.trim()) {
                       placeholder="Ej. 5"
                       value={formData.minStockAlert}
                       onChange={(e) => setFormData({ ...formData, minStockAlert: e.target.value === "" ? "" : Math.max(0, parseInt(e.target.value) || 0) })}
-                      className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 text-neutral-900 dark:text-neutral-50 transition-all"
+                      className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-xl text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 text-neutral-900 dark:text-neutral-50 placeholder:text-neutral-500 dark:placeholder:text-neutral-400 transition-all"
                     />
                   </div>
                 </div>
 
                 {!editingArticle && warehouses.length > 0 && (
-                  <div className="pt-4 border-t border-neutral-100 dark:border-neutral-800 space-y-4 bg-neutral-50 dark:bg-neutral-800/20 p-4.5 rounded-2xl border border-neutral-100 dark:border-neutral-800/60">
+                  <div className="pt-4 border-t border-neutral-100 dark:border-neutral-800 space-y-4 bg-neutral-50 dark:bg-neutral-800/20 p-4.5 rounded-2xl border border-neutral-200 dark:border-neutral-800/60">
                     <div>
                       <h4 className="text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Asignación Obligatoria de Bodega</h4>
-                      <p className="text-[10px] text-neutral-400 font-bold uppercase mt-0.5">Defina a qué bodega se ingresará inicialmente este nuevo artículo.</p>
+                      <p className="text-[10px] text-neutral-600 dark:text-neutral-400 font-bold uppercase mt-0.5">Defina a qué bodega se ingresará inicialmente este nuevo artículo.</p>
                     </div>
                     
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="text-[10px] font-black text-neutral-400 uppercase tracking-widest block mb-1.5">Stock Inicial *</label>
+                        <label className="text-[10px] font-black text-neutral-700 dark:text-neutral-300 uppercase tracking-widest block mb-1.5">Stock Inicial *</label>
                         <input
                           type="number"
                           min={0}
@@ -592,17 +592,17 @@ if (!formData.category.trim()) {
                           placeholder="0"
                           value={formData.initialQuantity}
                           onChange={(e) => setFormData({ ...formData, initialQuantity: e.target.value === "" ? "" : Math.max(0, parseInt(e.target.value) || 0) })}
-                          className="w-full px-4 py-3 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 text-neutral-900 dark:text-neutral-50 transition-all relative z-10 cursor-pointer "
+                          className="w-full px-4 py-3 bg-white dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 rounded-xl text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 text-neutral-900 dark:text-neutral-50 placeholder:text-neutral-500 dark:placeholder:text-neutral-400 transition-all relative z-10 cursor-pointer "
                         />
                       </div>
 
                       <div>
-                        <label className="text-[10px] font-black text-neutral-400 uppercase tracking-widest block mb-1.5">Bodega Destino *</label>
+                        <label className="text-[10px] font-black text-neutral-700 dark:text-neutral-300 uppercase tracking-widest block mb-1.5">Bodega Destino *</label>
                         <select
                           required
                           value={formData.initialWarehouseId}
                           onChange={(e) => setFormData({ ...formData, initialWarehouseId: e.target.value })}
-                          className="w-full px-4 py-3 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 text-neutral-900 dark:text-neutral-50 transition-all"
+                          className="w-full px-4 py-3 bg-white dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 rounded-xl text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 text-neutral-900 dark:text-neutral-50 transition-all"
                         >
                           <option value="" disabled>Seleccione Bodega...</option>
                           {warehouses.map(wh => (

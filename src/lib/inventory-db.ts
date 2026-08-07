@@ -688,6 +688,12 @@ export async function saveArticleWithStockTransaction(
   enterpriseId: string,
   createdById?: string
 ) {
+  if (!enterpriseId) {
+    throw new Error('Empresa no identificada. No se puede guardar el artículo.');
+  }
+
+  const safeCreatedBy = createdById || enterpriseId || '';
+
   await runTransaction(db, async (transaction) => {
     let artRef;
     let artId = matchedArticleId;
@@ -742,7 +748,7 @@ export async function saveArticleWithStockTransaction(
         quantity: articleData.initialQuantity,
         userId: enterpriseId,
         enterpriseId: enterpriseId,
-        createdBy: createdById,
+        createdBy: safeCreatedBy,
         createdAt: Timestamp.now()
       };
       transaction.set(artRef, newArticle);
@@ -766,7 +772,7 @@ export async function saveArticleWithStockTransaction(
           seriesList: articleData.seriesList,
           userId: enterpriseId,
           enterpriseId: enterpriseId,
-          createdBy: createdById
+          createdBy: safeCreatedBy
         });
       }
     }

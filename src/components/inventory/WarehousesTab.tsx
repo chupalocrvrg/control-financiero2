@@ -373,7 +373,7 @@ export default function WarehousesTab() {
             <form onSubmit={handleSubmit} className="p-8 space-y-6">
               <div className="space-y-4">
                 <div>
-                  <label className="text-[10px] font-black text-neutral-400 uppercase tracking-widest block mb-1.5">Nombre de la Bodega *</label>
+                  <label className="text-[10px] font-black text-neutral-700 dark:text-neutral-300 uppercase tracking-widest block mb-1.5">Nombre de la Bodega *</label>
                   <input
                     type="text"
                     required
@@ -381,7 +381,7 @@ export default function WarehousesTab() {
                     placeholder="Ej. Bodega Central, Bodega Sur"
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 text-neutral-900 dark:text-neutral-50 transition-all uppercase"
+                    className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-xl text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 text-neutral-900 dark:text-neutral-50 placeholder:text-neutral-500 dark:placeholder:text-neutral-400 transition-all uppercase"
                   />
                   <datalist id="warehouse-names-list">
                     {uniqueWarehouseNames.map(whName => (
@@ -391,7 +391,7 @@ export default function WarehousesTab() {
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-black text-neutral-400 uppercase tracking-widest block mb-1.5">Persona Asignada / Responsable *</label>
+                  <label className="text-[10px] font-black text-neutral-700 dark:text-neutral-300 uppercase tracking-widest block mb-1.5">Persona Asignada / Responsable *</label>
                   <input
                     type="text"
                     required
@@ -399,14 +399,14 @@ export default function WarehousesTab() {
                     placeholder="Ej. Juan Pérez"
                     value={formData.assignedPerson}
                     onChange={(e) => setFormData({ ...formData, assignedPerson: e.target.value })}
-                    className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 text-neutral-900 dark:text-neutral-50 transition-all uppercase"
+                    className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-xl text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 text-neutral-900 dark:text-neutral-50 placeholder:text-neutral-500 dark:placeholder:text-neutral-400 transition-all uppercase"
                   />
                   <datalist id="assigned-persons-list">
                     {uniqueAssignedPersons.map(person => (
                       <option key={person} value={person} />
                     ))}
                   </datalist>
-                  <p className="text-[10px] text-neutral-400 font-medium mt-1">Obligatorio. Persona encargada de recibir o despachar mercaderías en esta bodega.</p>
+                  <p className="text-[10px] text-neutral-600 dark:text-neutral-400 font-medium mt-1">Obligatorio. Persona encargada de recibir o despachar mercaderías en esta bodega.</p>
                 </div>
               </div>
 

@@ -11,6 +11,20 @@ export interface ChangelogRelease {
 
 export const staticChangelog: ChangelogRelease[] = [
   {
+    version: "4.40.2",
+    date: new Date().toISOString().split('T')[0],
+    changes: [
+      "Solución de Guardado para Cuentas Bodeguero y Empleados (Permisos y Datos): Se actualizaron las reglas de seguridad de Firestore (`firestore.rules`) permitiendo que usuarios autenticados sin la bandera estricta de correo verificado (`email_verified`) pero habilitados y vinculados a una empresa puedan escribir en las colecciones de inventario. Asimismo, se sanitizó el campo `createdBy` en la función transaccional `saveArticleWithStockTransaction` para evitar errores por valores no definidos (`undefined`)."
+    ]
+  },
+  {
+    version: "4.40.1",
+    date: new Date().toISOString().split('T')[0],
+    changes: [
+      "Ajuste Crítico de Contraste y Accesibilidad en Temas Claros (UI): Se corrigieron los estilos tipográficos del modal 'Ingreso de Mercadería' y formularios de inventario. Se actualizaron las etiquetas de campos (labels), descripciones secundarias y textos de reemplazo (placeholders) de tonos grises pálidos de bajo contraste (`text-neutral-400`) a colores neutros oscuros y contrastados (`text-neutral-700` en tema claro / `text-neutral-300` en tema oscuro), cumpliendo estrictamente los estándares de accesibilidad WCAG (ratio > 4.5:1)."
+    ]
+  },
+  {
     version: "4.40.0",
     date: new Date().toISOString().split('T')[0],
     changes: [

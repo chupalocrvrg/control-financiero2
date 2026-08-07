@@ -129,11 +129,12 @@ export default function AdminUsers({ mode = "USERS" }: { mode?: "USERS" | "HISTO
       const newRole = wizardEmployeeRole === 'BODEGUERO' ? 'BODEGUERO' : 'employee';
       await updateDoc(userRef, {
         role: newRole,
+        employeeRole: wizardEmployeeRole,
         enterpriseId: wizardTargetEnterpriseId,
         name: wizardName.trim() || targetUser.name || 'Empleado'
       });
 
-      if (newRole === 'employee') {
+      if (newRole === 'employee' || newRole === 'BODEGUERO') {
         await syncLinkedUserToEmployees(
           targetUser.id,
           targetUser.email,
@@ -529,6 +530,17 @@ export default function AdminUsers({ mode = "USERS" }: { mode?: "USERS" | "HISTO
           throw new Error('Debe seleccionar una empresa para asociar este empleado o bodeguero.');
         }
         updateData.enterpriseId = entityFormData.enterpriseId;
+        updateData.employeeRole = entityFormData.role === 'BODEGUERO' ? 'BODEGUERO' : (editingEntityUser.employeeRole || 'vendedor');
+
+        // Sync to employees collection
+        await syncLinkedUserToEmployees(
+          editingEntityUser.id,
+          editingEntityUser.email,
+          editingEntityUser.name || 'Bodeguero',
+          '',
+          entityFormData.enterpriseId,
+          (entityFormData.role === 'BODEGUERO' ? 'BODEGUERO' : 'vendedor') as any
+        );
       } else {
         updateData.enterpriseId = null;
       }

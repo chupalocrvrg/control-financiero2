@@ -17,7 +17,8 @@ export default function InventoryDashboard() {
   const [recentSales, setRecentSales] = useState<InventorySale[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const currentEnterpriseId = profile?.role === 'BODEGUERO' ? profile?.enterpriseId : user?.uid;
+  const isBodegueroOrStaff = profile?.role === 'BODEGUERO' || (profile as any)?.employeeRole === 'BODEGUERO' || profile?.role === 'employee';
+  const currentEnterpriseId = isBodegueroOrStaff ? (profile?.enterpriseId || user?.uid) : user?.uid;
 
   useEffect(() => {
     if (currentEnterpriseId) {

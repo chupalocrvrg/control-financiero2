@@ -47,7 +47,15 @@ service cloud.firestore {
     function isEnterpriseData(data) {
       return isAccountActive() && (
         isAdmin() || 
-        ('userId' in data && data.userId == request.auth.uid) ||
+        (
+          'userId' in data && (
+            data.userId == request.auth.uid ||
+            (
+              exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.enterpriseId == data.userId
+            )
+          )
+        ) ||
         (
           'enterpriseId' in data && (
             data.enterpriseId == request.auth.uid || 
@@ -122,11 +130,10 @@ service cloud.firestore {
     }
 
     function isValidCheck(data) {
-      return (data.userId == request.auth.uid || isAdmin()) &&
+      return isEnterpriseData(data) &&
              data.invoiceId is string &&
-             data.amount is number && data.amount > 0 &&
-             data.status in ['PENDING', 'PAID', 'DELETED'] &&
-             data.createdAt is timestamp;
+             data.amount is number && data.amount >= 0 &&
+             data.status in ['PENDING', 'PAID', 'DELETED', 'PENDIENTE', 'COBRADO', 'ANULADO'];
     }
 
     function isValidAudit(data) {
@@ -203,7 +210,7 @@ service cloud.firestore {
 
     match /checks/{id} {
       allow read, delete: if isVerified() && isEnterpriseData(resource.data);
-      allow create, update: if isVerified() && isEnterpriseData(incoming());
+      allow create, update: if isVerified() && isValidCheck(incoming());
     }
 
     match /settings/{userId} {

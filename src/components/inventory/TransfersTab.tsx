@@ -42,7 +42,8 @@ export default function TransfersTab() {
   const [revertItemId, setRevertItemId] = useState<string | null>(null);
   const [revertComment, setRevertComment] = useState('');
 
-  const currentEnterpriseId = profile?.role === 'BODEGUERO' ? profile?.enterpriseId : user?.uid;
+  const isBodegueroOrStaff = profile?.role === 'BODEGUERO' || (profile as any)?.employeeRole === 'BODEGUERO' || profile?.role === 'employee';
+  const currentEnterpriseId = isBodegueroOrStaff ? (profile?.enterpriseId || user?.uid) : user?.uid;
 
   useEffect(() => {
     if (currentEnterpriseId) {

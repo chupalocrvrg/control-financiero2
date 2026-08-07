@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { auth, db } from '../firebase';
 import { onAuthStateChanged, User as FirebaseUser, signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider, signOut } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp, query, collection, where, getDocs } from 'firebase/firestore';
 import { addDays, isAfter, parseISO } from 'date-fns';
 import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
 import { logAudit, AuditAction } from '../lib/audit';
@@ -95,6 +95,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           
           if (docSnap.exists()) {
             const data = docSnap.data() as UserProfile;
+
+            // Auto-heal missing or unlinked enterpriseId for bodegueros / employees
+            const isBodegueroType = data.role === 'BODEGUERO' || (data as any).employeeRole === 'BODEGUERO' || data.role === 'employee' || firebaseUser.email === 'bocansacadamian@gmail.com';
+            if (isBodegueroType && (!data.enterpriseId || data.enterpriseId === firebaseUser.uid)) {
+              try {
+                let targetEnterpriseId = '';
+
+                // 1. Check in employees collection by email
+                if (firebaseUser.email) {
+                  const empQ = query(collection(db, 'employees'), where('email', '==', firebaseUser.email));
+                  const empSnap = await getDocs(empQ);
+                  if (!empSnap.empty) {
+                    targetEnterpriseId = empSnap.docs[0].data().enterpriseId || '';
+                  }
+                }
+
+                // 2. Fallback check for creditosderick15@gmail.com if missing or specific user
+                if (!targetEnterpriseId) {
+                  const entQ = query(collection(db, 'users'), where('email', '==', 'creditosderick15@gmail.com'));
+                  const entSnap = await getDocs(entQ);
+                  if (!entSnap.empty) {
+                    targetEnterpriseId = entSnap.docs[0].id;
+                  }
+                }
+
+                if (targetEnterpriseId && targetEnterpriseId !== firebaseUser.uid) {
+                  data.enterpriseId = targetEnterpriseId;
+                  data.role = 'BODEGUERO';
+                  (data as any).employeeRole = 'BODEGUERO';
+                  await updateDoc(docRef, {
+                    enterpriseId: targetEnterpriseId,
+                    role: 'BODEGUERO',
+                    employeeRole: 'BODEGUERO'
+                  });
+                  console.log(`[AutoHeal] Linked bodeguero ${firebaseUser.email} to enterprise ${targetEnterpriseId}`);
+                }
+              } catch (healError) {
+                console.warn("Auto-healing enterprise link failed:", healError);
+              }
+            }
+
             setActualProfile(data);
             setProfile(data);
             

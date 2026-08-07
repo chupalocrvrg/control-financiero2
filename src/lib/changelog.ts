@@ -11,6 +11,41 @@ export interface ChangelogRelease {
 
 export const staticChangelog: ChangelogRelease[] = [
   {
+    version: "4.40.0",
+    date: new Date().toISOString().split('T')[0],
+    changes: [
+      "Corrección del Orden de Ejecución en Transacciones de Firestore (Lecturas Antes de Escrituras): Se reestructuró la función `saveArticleWithStockTransaction` en `inventory-db` para separar explícitamente la Fase 1 (todas las lecturas `transaction.get` para artículos y stock de almacén) de la Fase 2 (escrituras `transaction.set` y `transaction.update`). Esto previene el error en tiempo de ejecución de Firestore que impide realizar lecturas tras haber iniciado escrituras."
+    ]
+  },
+  {
+    version: "4.39.0",
+    date: new Date().toISOString().split('T')[0],
+    changes: [
+      "Blindaje Transaccional Completo en la Creación de Artículos: Se creó la función `saveArticleWithStockTransaction` en `inventory-db` y se integró en `ArticlesTab.tsx`, eliminando la última secuencia `getDoc` + `writeBatch` residual al registrar o sumar stock inicial a artículos existentes (`matchedArticle`). Toda la creación e incremento de inventario global y por almacén en el registro de artículos ahora se ejecuta bajo transacciones atómicas `runTransaction`, garantizando consistencia absoluta ante peticiones concurrentes."
+    ]
+  },
+  {
+    version: "4.38.0",
+    date: new Date().toISOString().split('T')[0],
+    changes: [
+      "Transacciones Atómicas en Firestore e Integración de Validación de Cheques: Se refactorizó completamente el módulo `inventory-db` para migrar de `writeBatch` + `getDoc` a transacciones atómicas puras (`runTransaction`) en todas las operaciones de inventario (transferencias, ventas, préstamos, devoluciones y reversiones). Esto elimina de raíz el riesgo de carreras de condición (race conditions) en actualizaciones de stock concurrentes. Asimismo, se integró la función `isValidCheck` en las reglas de seguridad de Firestore para validar la estructura requerida de la colección `/checks/{id}` y se desplegó la versión más reciente en Firebase."
+    ]
+  },
+  {
+    version: "4.37.0",
+    date: new Date().toISOString().split('T')[0],
+    changes: [
+      "Actualización Integral de Reglas de Seguridad de Firestore y Atributos de Documentos de Inventario: Se corrigió la función `isEnterpriseData` en `firestore.rules` para validar que el `userId` o `enterpriseId` guardado coincida tanto con el UID de usuario como con el `enterpriseId` asignado en la cuenta del empleado/bodeguero. Además, se incluyeron explícitamente los campos `enterpriseId` y `createdBy` en todas las escrituras y transacciones en lote de `inventory-db` (creación de bodegas, artículos, stock de almacenes, transferencias, ventas y préstamos/devoluciones). Despliegue de reglas ejecutado exitosamente en el servidor de Firebase."
+    ]
+  },
+  {
+    version: "4.36.0",
+    date: new Date().toISOString().split('T')[0],
+    changes: [
+      "Solución Integral de Vinculación y Consultas para Bodegueros: Se implementó la resolución automática y autorreparación de `enterpriseId` en `AuthContext` para perfiles de bodeguero y empleados (incluyendo usuarios registrados vía Gmail como `bocansacadamian@gmail.com`). Se estandarizó la resolución del ID de empresa en todas las pestañas de inventario (Bodegas, Artículos, Ventas, Transferencias, Préstamos y Dashboard), asegurando sincronización completa en tiempo real con la empresa padre `creditosderick15@gmail.com`."
+    ]
+  },
+  {
     version: "4.35.2",
     date: new Date().toISOString().split('T')[0],
     changes: [

@@ -27,7 +27,8 @@ export default function WarehousesTab() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-  const currentEnterpriseId = profile?.role === 'BODEGUERO' ? profile?.enterpriseId : user?.uid;
+  const isBodegueroOrStaff = profile?.role === 'BODEGUERO' || (profile as any)?.employeeRole === 'BODEGUERO' || profile?.role === 'employee';
+  const currentEnterpriseId = isBodegueroOrStaff ? (profile?.enterpriseId || user?.uid) : user?.uid;
 
   useEffect(() => {
     if (currentEnterpriseId) {
@@ -117,6 +118,8 @@ export default function WarehousesTab() {
           name: formData.name.trim(),
           assignedPerson: formData.assignedPerson.trim(),
           userId: currentEnterpriseId,
+          enterpriseId: currentEnterpriseId,
+          createdBy: user?.uid,
           createdAt: Timestamp.now()
         });
       }

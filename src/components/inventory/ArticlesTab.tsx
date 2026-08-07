@@ -6,7 +6,7 @@ import { useNotification } from '../../contexts/NotificationContext';
 import { Article, Warehouse } from '../../types/inventory';
 import { Plus, Search, AlertTriangle, Edit3, Trash2, Package, Eye, Tag, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { adjustStockAndGlobalQuantity } from '../../lib/inventory-db';
+import { saveArticleWithStockTransaction } from '../../lib/inventory-db';
 
 export default function ArticlesTab() {
   const { user, profile } = useAuth();
@@ -35,7 +35,8 @@ export default function ArticlesTab() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-  const currentEnterpriseId = profile?.role === 'BODEGUERO' ? profile?.enterpriseId : user?.uid;
+  const isBodegueroOrStaff = profile?.role === 'BODEGUERO' || (profile as any)?.employeeRole === 'BODEGUERO' || profile?.role === 'employee';
+  const currentEnterpriseId = isBodegueroOrStaff ? (profile?.enterpriseId || user?.uid) : user?.uid;
 
   useEffect(() => {
     if (currentEnterpriseId) {
@@ -186,65 +187,24 @@ if (!formData.category.trim()) {
           minStockAlert: Number(formData.minStockAlert)
         });
       } else {
-        // Create new article or update existing
-        const batch = writeBatch(db);
-        let artId = '';
-        let currentArtSeries: string[] = [];
-
-        if (matchedArticle) {
-          artId = matchedArticle.id;
-          currentArtSeries = matchedArticle.seriesList || [];
-          
-          const artRef = doc(db, 'articles', artId);
-          batch.update(artRef, {
-            quantity: matchedArticle.quantity + Number(formData.initialQuantity || 0),
-            seriesList: [...currentArtSeries, ...seriesArray]
-          });
-        } else {
-          const artRef = doc(collection(db, 'articles'));
-          artId = artRef.id;
-          const newArticle = {
-            name: computedName,
+        // Create new article or update matched existing article using atomic transaction
+        await saveArticleWithStockTransaction(
+          {
             category: formData.category.trim(),
             brand: formData.brand.trim(),
             model: formData.model.trim(),
+            computedName,
             requiresSeries: formData.requiresSeries,
             seriesList: seriesArray,
             barcode: formData.barcode.trim(),
             minStockAlert: Number(formData.minStockAlert),
-            quantity: Number(formData.initialQuantity || 0),
-            userId: currentEnterpriseId,
-            createdAt: Timestamp.now()
-          };
-          batch.set(artRef, newArticle);
-        }
-
-        const invId = `${formData.initialWarehouseId}_${artId}`;
-        const invRef = doc(db, 'warehouse_inventory', invId);
-        
-        // We need to know if warehouse_inventory exists to update it, but we are doing it in a batch...
-        // Let's do it right before batch:
-        const { getDoc } = await import('firebase/firestore');
-        const invSnap = await getDoc(invRef);
-        
-        if (invSnap.exists()) {
-          const existingInv = invSnap.data();
-          batch.update(invRef, {
-            quantity: existingInv.quantity + Number(formData.initialQuantity || 0),
-            seriesList: [...(existingInv.seriesList || []), ...seriesArray]
-          });
-        } else {
-          batch.set(invRef, {
-            id: invId,
-            warehouseId: formData.initialWarehouseId,
-            articleId: artId,
-            quantity: Number(formData.initialQuantity || 0),
-            seriesList: seriesArray,
-            userId: currentEnterpriseId
-          });
-        }
-
-        await batch.commit();
+            initialQuantity: Number(formData.initialQuantity || 0),
+            initialWarehouseId: formData.initialWarehouseId
+          },
+          matchedArticle ? matchedArticle.id : null,
+          currentEnterpriseId,
+          user?.uid
+        );
       }
 
       setIsModalOpen(false);

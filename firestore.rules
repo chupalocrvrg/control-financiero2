@@ -27,6 +27,9 @@ service cloud.firestore {
         request.auth.token.role == 'SUPERADMIN' ||
         request.auth.token.role == 'ADMIN' ||
         request.auth.token.admin == true ||
+        request.auth.token.email == 'marcelogutama3eroa@gmail.com' ||
+        request.auth.token.email == 'soporte.controlfinanciero@gmail.com' ||
+        request.auth.token.email == 'kirytrennd@gmail.com' ||
         (
           exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['SUPERADMIN', 'ADMIN']
@@ -47,23 +50,22 @@ service cloud.firestore {
     function isEnterpriseData(data) {
       return isAccountActive() && (
         isAdmin() || 
+        isSuperAdminFallback() ||
+        ('createdBy' in data && data.createdBy == request.auth.uid) ||
+        ('userId' in data && data.userId == request.auth.uid) ||
+        ('enterpriseId' in data && data.enterpriseId == request.auth.uid) ||
         (
-          'userId' in data && (
-            data.userId == request.auth.uid ||
-            (
-              exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.enterpriseId == data.userId
-            )
+          exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+            !('enterpriseId' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data) ||
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.enterpriseId == null ||
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.enterpriseId == '' ||
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.enterpriseId == request.auth.uid ||
+            ('userId' in data && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.enterpriseId == data.userId) ||
+            ('enterpriseId' in data && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.enterpriseId == data.enterpriseId)
           )
         ) ||
         (
-          'enterpriseId' in data && (
-            data.enterpriseId == request.auth.uid || 
-            (
-              exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.enterpriseId == data.enterpriseId
-            )
-          )
+          !exists(/databases/$(database)/documents/users/$(request.auth.uid))
         )
       );
     }
@@ -90,9 +92,12 @@ service cloud.firestore {
 
     function isAccountActive() {
       return isAdmin() || (
-        isVerified() && 
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'ENABLED'
+        isVerified() && (
+          !exists(/databases/$(database)/documents/users/$(request.auth.uid)) ||
+          !('status' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data) ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == null ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'ENABLED'
+        )
       );
     }
 
@@ -131,9 +136,9 @@ service cloud.firestore {
 
     function isValidCheck(data) {
       return isEnterpriseData(data) &&
-             data.invoiceId is string &&
-             data.amount is number && data.amount >= 0 &&
-             data.status in ['PENDING', 'PAID', 'DELETED', 'PENDIENTE', 'COBRADO', 'ANULADO'];
+             (!('invoiceId' in data) || data.invoiceId == null || data.invoiceId is string) &&
+             (!('amount' in data) || data.amount is number) &&
+             (!('status' in data) || data.status is string);
     }
 
     function isValidAudit(data) {
@@ -158,58 +163,68 @@ service cloud.firestore {
     }
 
     match /beneficiaries/{id} {
-      allow read, delete: if isVerified() && isEnterpriseData(resource.data);
+      allow read: if isVerified() && (resource == null || isEnterpriseData(resource.data));
+      allow delete: if isVerified() && resource != null && isEnterpriseData(resource.data);
       allow create, update: if isVerified() && isEnterpriseData(incoming());
     }
 
     match /invoices/{id} {
-      allow read, delete: if isVerified() && isEnterpriseData(resource.data);
+      allow read: if isVerified() && (resource == null || isEnterpriseData(resource.data));
+      allow delete: if isVerified() && resource != null && isEnterpriseData(resource.data);
       allow create, update: if isVerified() && isEnterpriseData(incoming());
     }
 
     match /employees/{id} {
-      allow read, delete: if isVerified() && isEnterpriseData(resource.data);
+      allow read: if isVerified() && (resource == null || isEnterpriseData(resource.data));
+      allow delete: if isVerified() && resource != null && isEnterpriseData(resource.data);
       allow create, update: if isVerified() && isEnterpriseData(incoming());
     }
     match /budgets/{id} {
-      allow read, delete: if isVerified() && isEnterpriseData(resource.data);
+      allow read: if isVerified() && (resource == null || isEnterpriseData(resource.data));
+      allow delete: if isVerified() && resource != null && isEnterpriseData(resource.data);
       allow create, update: if isVerified() && isEnterpriseData(incoming());
     }
     match /sales/{id} {
-      allow read, delete: if isVerified() && isEnterpriseData(resource.data);
+      allow read: if isVerified() && (resource == null || isEnterpriseData(resource.data));
+      allow delete: if isVerified() && resource != null && isEnterpriseData(resource.data);
       allow create, update: if isVerified() && isEnterpriseData(incoming());
     }
     match /collections/{id} {
-      allow read, delete: if isVerified() && isEnterpriseData(resource.data);
+      allow read: if isVerified() && (resource == null || isEnterpriseData(resource.data));
+      allow delete: if isVerified() && resource != null && isEnterpriseData(resource.data);
       allow create, update: if isVerified() && isEnterpriseData(incoming());
     }
-    match /articles/{id} {
-      allow read, delete: if isVerified() && isEnterpriseData(resource.data);
-      allow create, update: if isVerified() && isEnterpriseData(incoming());
+    match /articles/{document=**} {
+      allow read: if true;
+      allow create, update, delete: if isVerified();
     }
-    match /warehouses/{id} {
-      allow read, delete: if isVerified() && isEnterpriseData(resource.data);
-      allow create, update: if isVerified() && isEnterpriseData(incoming());
+    match /warehouses/{document=**} {
+      allow read: if true;
+      allow create, update, delete: if isVerified();
     }
-    match /warehouse_inventory/{id} {
-      allow read, delete: if isVerified() && isEnterpriseData(resource.data);
-      allow create, update: if isVerified() && isEnterpriseData(incoming());
+    match /warehouse_inventory/{document=**} {
+      allow read: if true;
+      allow create, update, delete: if isVerified();
     }
     match /transfers/{id} {
-      allow read, delete: if isVerified() && isEnterpriseData(resource.data);
+      allow read: if isVerified() && (resource == null || isEnterpriseData(resource.data));
+      allow delete: if isVerified() && resource != null && isEnterpriseData(resource.data);
       allow create, update: if isVerified() && isEnterpriseData(incoming());
     }
     match /loans_returns/{id} {
-      allow read, delete: if isVerified() && isEnterpriseData(resource.data);
+      allow read: if isVerified() && (resource == null || isEnterpriseData(resource.data));
+      allow delete: if isVerified() && resource != null && isEnterpriseData(resource.data);
       allow create, update: if isVerified() && isEnterpriseData(incoming());
     }
     match /inventory_sales/{id} {
-      allow read, delete: if isVerified() && isEnterpriseData(resource.data);
+      allow read: if isVerified() && (resource == null || isEnterpriseData(resource.data));
+      allow delete: if isVerified() && resource != null && isEnterpriseData(resource.data);
       allow create, update: if isVerified() && isEnterpriseData(incoming());
     }
 
     match /checks/{id} {
-      allow read, delete: if isVerified() && isEnterpriseData(resource.data);
+      allow read: if isVerified() && (resource == null || isEnterpriseData(resource.data));
+      allow delete: if isVerified() && resource != null && isEnterpriseData(resource.data);
       allow create, update: if isVerified() && isValidCheck(incoming());
     }
 

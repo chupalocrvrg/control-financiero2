@@ -6,6 +6,7 @@ import { Warehouse, Article, WarehouseInventory, LoanReturn, Transfer, Inventory
 import { Package, Home, ArrowLeftRight, ShoppingBag, ShoppingCart, AlertTriangle, User, Calendar, CheckCircle, TrendingUp } from 'lucide-react';
 import { format, isToday } from 'date-fns';
 import { cn } from '../../lib/utils';
+import { fetchInventoryCollection, ensureArticlesLoaded } from '../../lib/inventory-db';
 
 export default function InventoryDashboard() {
   const { user, profile } = useAuth();
@@ -31,66 +32,43 @@ export default function InventoryDashboard() {
       setLoading(true);
       
       // 1. Fetch Warehouses
-      const whQ = query(collection(db, 'warehouses'), where('userId', '==', currentEnterpriseId));
-      const whSnap = await getDocs(whQ);
-      const whList = whSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Warehouse));
+      const whList = await fetchInventoryCollection<Warehouse>('warehouses', currentEnterpriseId || '', user?.uid, profile?.enterpriseId);
       setWarehouses(whList);
 
       // 2. Fetch Articles
-      const artQ = query(collection(db, 'articles'), where('userId', '==', currentEnterpriseId));
-      const artSnap = await getDocs(artQ);
-      const artList = artSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Article));
-      setArticles(artList);
+      let artList = await fetchInventoryCollection<Article>('articles', currentEnterpriseId || '', user?.uid, profile?.enterpriseId);
 
       // 3. Fetch Warehouse Inventories
-      const invQ = query(collection(db, 'warehouse_inventory'), where('userId', '==', currentEnterpriseId));
-      const invSnap = await getDocs(invQ);
-      const invList = invSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as WarehouseInventory));
+      const invList = await fetchInventoryCollection<WarehouseInventory>('warehouse_inventory', currentEnterpriseId || '', user?.uid, profile?.enterpriseId);
       setInventories(invList);
 
-      // 4. Fetch recent transfers (limit to 3)
-      const transQ = query(
-        collection(db, 'transfers'), 
-        where('userId', '==', currentEnterpriseId), 
-        orderBy('timestamp', 'desc'),
-        // limit(3) removed to calculate full stock for commercial houses
-      );
-      const transSnap = await getDocs(transQ);
-      const transList = transSnap.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        timestamp: doc.data().timestamp?.toDate ? doc.data().timestamp.toDate() : new Date(doc.data().timestamp)
-      } as unknown as Transfer));
+      // Ensure all articles referenced in warehouse_inventory are loaded
+      const referencedIds = invList.map(i => i.articleId);
+      artList = await ensureArticlesLoaded<Article>(artList, referencedIds);
+      setArticles(artList);
+
+      // 4. Fetch transfers
+      const rawTransList = await fetchInventoryCollection<any>('transfers', currentEnterpriseId || '', user?.uid, profile?.enterpriseId);
+      const transList = rawTransList.map(doc => ({
+        ...doc,
+        timestamp: doc.timestamp?.toDate ? doc.timestamp.toDate() : (doc.timestamp ? new Date(doc.timestamp) : new Date())
+      } as unknown as Transfer)).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
       setRecentTransfers(transList);
 
-      // 5. Fetch recent loans/returns (limit to 3)
-      const lrQ = query(
-        collection(db, 'loans_returns'), 
-        where('userId', '==', currentEnterpriseId), 
-        orderBy('timestamp', 'desc'),
-        limit(3)
-      );
-      const lrSnap = await getDocs(lrQ);
-      const lrList = lrSnap.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        timestamp: doc.data().timestamp?.toDate ? doc.data().timestamp.toDate() : new Date(doc.data().timestamp)
-      } as unknown as LoanReturn));
+      // 5. Fetch loans/returns
+      const rawLrList = await fetchInventoryCollection<any>('loans_returns', currentEnterpriseId || '', user?.uid, profile?.enterpriseId);
+      const lrList = rawLrList.map(doc => ({
+        ...doc,
+        timestamp: doc.timestamp?.toDate ? doc.timestamp.toDate() : (doc.timestamp ? new Date(doc.timestamp) : new Date())
+      } as unknown as LoanReturn)).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).slice(0, 3);
       setRecentLoansReturns(lrList);
 
-      // 6. Fetch recent sales (limit to 3)
-      const salesQ = query(
-        collection(db, 'inventory_sales'), 
-        where('userId', '==', currentEnterpriseId), 
-        orderBy('timestamp', 'desc'),
-        limit(3)
-      );
-      const salesSnap = await getDocs(salesQ);
-      const salesList = salesSnap.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        timestamp: doc.data().timestamp?.toDate ? doc.data().timestamp.toDate() : new Date(doc.data().timestamp)
-      } as unknown as InventorySale));
+      // 6. Fetch sales
+      const rawSalesList = await fetchInventoryCollection<any>('inventory_sales', currentEnterpriseId || '', user?.uid, profile?.enterpriseId);
+      const salesList = rawSalesList.map(doc => ({
+        ...doc,
+        timestamp: doc.timestamp?.toDate ? doc.timestamp.toDate() : (doc.timestamp ? new Date(doc.timestamp) : new Date())
+      } as unknown as InventorySale)).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).slice(0, 3);
       setRecentSales(salesList);
 
     } catch (err) {

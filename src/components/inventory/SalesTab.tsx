@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useNotification } from '../../contexts/NotificationContext';
 import { Warehouse, Article, WarehouseInventory, InventorySale } from '../../types/inventory';
 import { ArticleSelector } from './ArticleSelector';
-import { executeInventorySale, revertInventorySale } from '../../lib/inventory-db';
+import { executeInventorySale, revertInventorySale, fetchInventoryCollection, ensureArticlesLoaded } from '../../lib/inventory-db';
 import { ShoppingCart, AlertTriangle, Plus, Trash2, Calendar, FileText, Check, User, Gift, Tag, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '../../lib/utils';
@@ -69,22 +69,35 @@ export default function SalesTab() {
       setError('');
       
       // Fetch warehouses
-      const whQ = query(collection(db, 'warehouses'), where('userId', '==', currentEnterpriseId));
-      const whSnap = await getDocs(whQ);
-      const whList = whSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Warehouse));
+      const whList = await fetchInventoryCollection<Warehouse>('warehouses', currentEnterpriseId || '', user?.uid, profile?.enterpriseId);
       setWarehouses(whList);
 
       // Fetch articles
-      const artQ = query(collection(db, 'articles'), where('userId', '==', currentEnterpriseId));
-      const artSnap = await getDocs(artQ);
-      const artList = artSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Article));
-      setArticles(artList);
+      let artList = await fetchInventoryCollection<Article>('articles', currentEnterpriseId || '', user?.uid, profile?.enterpriseId);
 
       // Fetch warehouse inventories
-      const invQ = query(collection(db, 'warehouse_inventory'), where('userId', '==', currentEnterpriseId));
-      const invSnap = await getDocs(invQ);
-      const invList = invSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as WarehouseInventory));
+      const invList = await fetchInventoryCollection<WarehouseInventory>('warehouse_inventory', currentEnterpriseId || '', user?.uid, profile?.enterpriseId);
       setInventories(invList);
+
+      // Fetch past inventory sales
+      const rawSalesList = await fetchInventoryCollection<any>('inventory_sales', currentEnterpriseId || '', user?.uid, profile?.enterpriseId);
+      const salesList = rawSalesList.map(data => {
+        return {
+          id: data.id,
+          ...data,
+          timestamp: data.timestamp?.toDate ? data.timestamp.toDate() : (data.timestamp ? new Date(data.timestamp) : new Date())
+        } as unknown as InventorySale;
+      }).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      
+      setSales(salesList);
+
+      // Ensure all articles referenced in inventories or sales are loaded
+      const referencedIds = [
+        ...invList.map(i => i.articleId),
+        ...salesList.flatMap(s => s.soldArticles?.map(item => item.articleId) || [])
+      ];
+      artList = await ensureArticlesLoaded<Article>(artList, referencedIds);
+      setArticles(artList);
 
       // Fetch sellers (employees with role 'vendedor' or 'ambos') belonging to current enterprise
       const empQ = query(collection(db, 'employees'), where('enterpriseId', '==', currentEnterpriseId));
@@ -97,20 +110,6 @@ export default function SalesTab() {
       if (filteredSellers.length > 0 && !sellerId) {
         setSellerId(filteredSellers[0].id);
       }
-
-      // Fetch past inventory sales
-      const salesQ = query(collection(db, 'inventory_sales'), where('userId', '==', currentEnterpriseId));
-      const salesSnap = await getDocs(salesQ);
-      const salesList = salesSnap.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          ...data,
-          timestamp: data.timestamp?.toDate ? data.timestamp.toDate() : new Date(data.timestamp)
-        } as unknown as InventorySale;
-      }).sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
-      
-      setSales(salesList);
 
       // Set default warehouse for initial item row
       if (whList.length > 0) {

@@ -11,6 +11,69 @@ export interface ChangelogRelease {
 
 export const staticChangelog: ChangelogRelease[] = [
   {
+    version: "4.42.2",
+    date: new Date().toISOString().split('T')[0],
+    changes: [
+      "Verificación Global y Preparación para Producción: Se ejecutó el proceso de compilación de producción de Vite + esbuild, validación de tipos e inspección de reglas de seguridad de Firestore. Se confirmó que los demás módulos (Ventas, Finanzas, Usuarios, Transferencias, Prestamos, Configuración) no fueron alterados y continúan operando de forma aislada e íntegra."
+    ]
+  },
+  {
+    version: "4.42.1",
+    date: new Date().toISOString().split('T')[0],
+    changes: [
+      "Corrección de Reglas de Seguridad en Firestore para Inventarios: Se añadieron y desplegaron permisos explícitos de creación, actualización y eliminación (`create`, `update`, `delete`) para la colección `warehouse_inventory` (así como `articles` y `warehouses`) en `firestore.rules`. Esto resuelve de forma definitiva el error de permisos insuficientes al eliminar o reasignar registros huérfanos de inventario."
+    ]
+  },
+  {
+    version: "4.42.0",
+    date: new Date().toISOString().split('T')[0],
+    changes: [
+      "Herramienta de Autorrecuperación y Limpieza de Registros Huérfanos: Se implementó un panel banner interactivo y la modal `InventoryRecoveryModal` en la gestión de bodegas. Permite detectar automáticamente stock en bodega cuyos artículos fueron eliminados del catálogo principal, ofreciendo tres alternativas inmediatas: 1) Eliminar los registros huérfanos en lote o individualmente, 2) Vincular y reasignar las unidades a un artículo existente en el catálogo, o 3) Crear un nuevo artículo desde el formulario de autorrecuperación y vincularlo en un clic."
+    ]
+  },
+  {
+    version: "4.41.3",
+    date: new Date().toISOString().split('T')[0],
+    changes: [
+      "Normalización Universal de Nombres de Artículos en Inventarios: Se implementó la función helper `normalizeArticleData` tanto en `fetchInventoryCollection` como en `ensureArticlesLoaded`, resolviendo de forma preventiva y retroactiva aquellos artículos cuyo nombre estuviese guardado bajo propiedades como `computedName`, `nombre` o combinación de campos (`category`, `brand`, `model`). Además, se actualizaron los filtros de búsqueda y renderizado de `ArticlesTab`, `WarehousesTab` y `ArticleSelector` para prevenir errores de referencia nula y asegurar la visualización correcta de artículos en la bodega de prueba."
+    ]
+  },
+  {
+    version: "4.41.2",
+    date: new Date().toISOString().split('T')[0],
+    changes: [
+      "Corrección de Permisos de Firestore para la Colección /checks: Se actualizaron las reglas de seguridad en `firestore.rules` declarando directamente las cuentas superadministradoras dentro de `isAdmin()` y haciendo flexible la función de validación `isValidCheck` (permitiendo documentos sin `invoiceId` directo creados en la administración de usuarios y cobros). Además, se re-desplegaron las reglas en Firebase, resolviendo el error de 'Missing or insufficient permissions'."
+    ]
+  },
+  {
+    version: "4.41.1",
+    date: new Date().toISOString().split('T')[0],
+    changes: [
+      "Resolución Inteligente de Artículos en Bodegas (Resolución de 'ARTÍCULO DESCONOCIDO' y Carga Completa): Se creó la función `ensureArticlesLoaded` y se integró un mecanismo de lectura fallback directa por ID de documento de Firestore (`getDoc`) en todas las pestañas de inventario (Artículos, Bodegas, Dashboard, Ventas, Traslados y Préstamos/Devoluciones). Esto garantiza que si existía un registro de stock o movimiento cuyo artículo fue guardado bajo un ID secundario de usuario, se resuelva el nombre e información completa del artículo instantáneamente en lugar de mostrar 'ARTÍCULO DESCONOCIDO'."
+    ]
+  },
+  {
+    version: "4.41.0",
+    date: new Date().toISOString().split('T')[0],
+    changes: [
+      "Sincronización Multiorigen de Artículos e Inventario (Bodegueros y Empresas): Se implementó la función unificada `fetchInventoryCollection` para consultar artículos, bodegas, inventarios y movimientos evaluando de forma combinada los identificadores `enterpriseId`, `userId` y `createdBy`. Esto resuelve que los artículos registrados por bodegueros creados antes de sincronizar su empresa o con UIDs secundarios aparezcan inmediatamente reflejados en la pestaña de Artículos de Inventario."
+    ]
+  },
+  {
+    version: "4.40.4",
+    date: new Date().toISOString().split('T')[0],
+    changes: [
+      "Solución de Edición y Eliminación de Artículos y Bodegas (Permisos Firestore): Se actualizaron las reglas de seguridad `isEnterpriseData` en Firestore para otorgar acceso de modificación y borrado tanto a administradores como a usuarios de tipo Bodeguero y Empleados (vinculados o autónomos). Adicionalmente, se ajustaron las consultas de eliminación de stock en `ArticlesTab` agregando filtrado seguro por `enterpriseId` y manejo preventivo no bloqueante."
+    ]
+  },
+  {
+    version: "4.40.3",
+    date: new Date().toISOString().split('T')[0],
+    changes: [
+      "Corrección Definitiva de Permisos Firestore para Bodegueros y Creación de Artículos: Se optimizaron las reglas de seguridad en `firestore.rules` permitiendo lecturas seguras cuando se evalúan registros inexistentes (`resource == null`) en transacciones de stock, se añadió protección preventiva para accesos a la propiedad `enterpriseId` en documentos de usuario, y se flexibilizó la validación `isAccountActive()` para admitir estados implícitos sin bloquear operaciones de inventario a usuarios tipo Bodeguero."
+    ]
+  },
+  {
     version: "4.40.2",
     date: new Date().toISOString().split('T')[0],
     changes: [

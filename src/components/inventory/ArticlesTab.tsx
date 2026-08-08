@@ -6,7 +6,7 @@ import { useNotification } from '../../contexts/NotificationContext';
 import { Article, Warehouse } from '../../types/inventory';
 import { Plus, Search, AlertTriangle, Edit3, Trash2, Package, Eye, Tag, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { saveArticleWithStockTransaction } from '../../lib/inventory-db';
+import { saveArticleWithStockTransaction, fetchInventoryCollection, ensureArticlesLoaded } from '../../lib/inventory-db';
 
 export default function ArticlesTab() {
   const { user, profile } = useAuth();
@@ -49,17 +49,34 @@ export default function ArticlesTab() {
       setLoading(true);
       setError('');
       
-      // Fetch articles
-      const artQ = query(collection(db, 'articles'), where('userId', '==', currentEnterpriseId));
-      const artSnap = await getDocs(artQ);
-      const artList = artSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Article));
-      setArticles(artList);
+      // Fetch articles across all target IDs
+      let artList = await fetchInventoryCollection<Article>(
+        'articles',
+        currentEnterpriseId || '',
+        user?.uid,
+        profile?.enterpriseId
+      );
 
-      // Fetch warehouses for initial assignment options
-      const whQ = query(collection(db, 'warehouses'), where('userId', '==', currentEnterpriseId));
-      const whSnap = await getDocs(whQ);
-      const whList = whSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Warehouse));
+      // Fetch warehouses across all target IDs
+      const whList = await fetchInventoryCollection<Warehouse>(
+        'warehouses',
+        currentEnterpriseId || '',
+        user?.uid,
+        profile?.enterpriseId
+      );
       setWarehouses(whList);
+
+      // Fetch warehouse_inventory to resolve any referenced articles
+      const invList = await fetchInventoryCollection<any>(
+        'warehouse_inventory',
+        currentEnterpriseId || '',
+        user?.uid,
+        profile?.enterpriseId
+      );
+
+      const referencedIds = invList.map(i => i.articleId);
+      artList = await ensureArticlesLoaded<Article>(artList, referencedIds);
+      setArticles(artList);
     } catch (err: any) {
       console.error('Error fetching inventory articles:', err);
       setError('No se pudieron cargar los artículos del inventario.');
@@ -225,13 +242,21 @@ if (!formData.category.trim()) {
       await deleteDoc(doc(db, 'articles', id));
       
       // Delete associated warehouse_inventory docs
-      const q = query(collection(db, 'warehouse_inventory'), where('articleId', '==', id));
-      const snap = await getDocs(q);
-      const batch = writeBatch(db);
-      snap.docs.forEach(doc => {
-        batch.delete(doc.ref);
-      });
-      await batch.commit();
+      try {
+        const q = currentEnterpriseId
+          ? query(collection(db, 'warehouse_inventory'), where('articleId', '==', id), where('enterpriseId', '==', currentEnterpriseId))
+          : query(collection(db, 'warehouse_inventory'), where('articleId', '==', id));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          const batch = writeBatch(db);
+          snap.docs.forEach(doc => {
+            batch.delete(doc.ref);
+          });
+          await batch.commit();
+        }
+      } catch (invErr) {
+        console.warn('Non-blocking: could not query/delete warehouse_inventory:', invErr);
+      }
 
       fetchData();
       showToast('Artículo eliminado exitosamente', 'success');
@@ -247,13 +272,15 @@ if (!formData.category.trim()) {
   const uniqueBrands = Array.from(new Set(articles.map(a => a.brand).filter(Boolean))).sort() as string[];
   const uniqueModels = Array.from(new Set(articles.map(a => a.model).filter(Boolean))).sort() as string[];
 
-  const filteredArticles = articles.filter(art => 
-    art.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    ((art.seriesList || []).some(s => s.toLowerCase().includes(searchTerm.toLowerCase()))) ||
-    (art.category && art.category.toLowerCase().includes(searchTerm.toLowerCase())) ||
-    (art.brand && art.brand.toLowerCase().includes(searchTerm.toLowerCase())) ||
-    (art.model && art.model.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  const filteredArticles = articles.filter(art => {
+    const artName = art.name || (art as any).computedName || (art as any).nombre || [art.category, art.brand, art.model].filter(Boolean).join(' ') || '';
+    const nameMatch = artName.toLowerCase().includes(searchTerm.toLowerCase());
+    const seriesMatch = (art.seriesList || []).some(s => Boolean(s && s.toLowerCase().includes(searchTerm.toLowerCase())));
+    const catMatch = Boolean(art.category && art.category.toLowerCase().includes(searchTerm.toLowerCase()));
+    const brandMatch = Boolean(art.brand && art.brand.toLowerCase().includes(searchTerm.toLowerCase()));
+    const modelMatch = Boolean(art.model && art.model.toLowerCase().includes(searchTerm.toLowerCase()));
+    return nameMatch || seriesMatch || catMatch || brandMatch || modelMatch;
+  });
 
   return (
     <div className="space-y-6">
@@ -332,7 +359,7 @@ if (!formData.category.trim()) {
                             <Package className="w-5 h-5" />
                           </div>
                           <div>
-                            <span className="text-sm font-bold text-neutral-950 dark:text-neutral-50 uppercase tracking-tight block">{art.name}</span>
+                            <span className="text-sm font-bold text-neutral-950 dark:text-neutral-50 uppercase tracking-tight block">{art.name || (art as any).computedName || (art as any).nombre || 'Artículo sin Nombre'}</span>
                             <div className="flex flex-wrap gap-1.5 mt-1 text-[10px]">
                               {art.category && (
                                 <span className="bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 font-bold uppercase px-1.5 py-0.5 rounded">

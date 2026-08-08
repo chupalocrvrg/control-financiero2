@@ -4,8 +4,10 @@ import { collection, query, where, getDocs, addDoc, updateDoc, deleteDoc, doc, T
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotification } from '../../contexts/NotificationContext';
 import { Warehouse, Article, WarehouseInventory } from '../../types/inventory';
-import { Plus, Search, AlertTriangle, Edit3, Trash2, Home, User, ChevronDown, ChevronUp, Package, X } from 'lucide-react';
+import { Plus, Search, AlertTriangle, Edit3, Trash2, Home, User, ChevronDown, ChevronUp, Package, X, Wrench, RefreshCw } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { fetchInventoryCollection, ensureArticlesLoaded } from '../../lib/inventory-db';
+import InventoryRecoveryModal, { OrphanItem } from './InventoryRecoveryModal';
 
 export default function WarehousesTab() {
   const { user, profile } = useAuth();
@@ -24,6 +26,10 @@ export default function WarehousesTab() {
     assignedPerson: ''
   });
   
+  // Recovery Modal States
+  const [isRecoveryModalOpen, setIsRecoveryModalOpen] = useState(false);
+  const [selectedOrphanInvId, setSelectedOrphanInvId] = useState<string | null>(null);
+
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -41,23 +47,36 @@ export default function WarehousesTab() {
       setLoading(true);
       setError('');
       
-      // Fetch warehouses
-      const whQ = query(collection(db, 'warehouses'), where('userId', '==', currentEnterpriseId));
-      const whSnap = await getDocs(whQ);
-      const whList = whSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Warehouse));
+      // Fetch warehouses across target IDs
+      const whList = await fetchInventoryCollection<Warehouse>(
+        'warehouses',
+        currentEnterpriseId || '',
+        user?.uid,
+        profile?.enterpriseId
+      );
       setWarehouses(whList);
 
-      // Fetch articles
-      const artQ = query(collection(db, 'articles'), where('userId', '==', currentEnterpriseId));
-      const artSnap = await getDocs(artQ);
-      const artList = artSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Article));
-      setArticles(artList);
+      // Fetch articles across target IDs
+      let artList = await fetchInventoryCollection<Article>(
+        'articles',
+        currentEnterpriseId || '',
+        user?.uid,
+        profile?.enterpriseId
+      );
 
-      // Fetch warehouse inventories
-      const invQ = query(collection(db, 'warehouse_inventory'), where('userId', '==', currentEnterpriseId));
-      const invSnap = await getDocs(invQ);
-      const invList = invSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as WarehouseInventory));
+      // Fetch warehouse inventories across target IDs
+      const invList = await fetchInventoryCollection<WarehouseInventory>(
+        'warehouse_inventory',
+        currentEnterpriseId || '',
+        user?.uid,
+        profile?.enterpriseId
+      );
       setInventories(invList);
+
+      // Ensure all articles referenced in warehouse_inventory are in artList
+      const referencedIds = invList.map(i => i.articleId);
+      artList = await ensureArticlesLoaded<Article>(artList, referencedIds);
+      setArticles(artList);
 
       // Auto-expand first warehouse if exists
       if (whList.length > 0 && !expandedWarehouseId) {
@@ -173,18 +192,82 @@ export default function WarehousesTab() {
     setExpandedWarehouseId(expandedWarehouseId === id ? null : id);
   };
 
+  // Orphan Inventory Detection
+  const orphanInventories: OrphanItem[] = inventories
+    .filter(inv => inv.quantity > 0 && !articles.some(a => a.id === inv.articleId))
+    .map(inv => ({
+      id: inv.id,
+      warehouseId: inv.warehouseId,
+      articleId: inv.articleId,
+      quantity: inv.quantity
+    }));
+
+  const handleDeleteAllOrphans = async () => {
+    if (orphanInventories.length === 0) return;
+    const confirm = await showConfirm(
+      'Eliminar Registros Huérfanos',
+      `¿Desea eliminar definitivamente los ${orphanInventories.length} registro(s) de inventario que hacen referencia a artículos no existentes en el catálogo? Esto limpiará el stock de artículos desconocidos.`,
+      { type: 'danger' }
+    );
+    if (!confirm) return;
+
+    try {
+      setLoading(true);
+      const batch = writeBatch(db);
+      orphanInventories.forEach(inv => {
+        const ref = doc(db, 'warehouse_inventory', inv.id);
+        batch.delete(ref);
+      });
+      await batch.commit();
+      showToast(`${orphanInventories.length} registro(s) huérfano(s) eliminado(s) con éxito`, 'success');
+      await fetchData();
+    } catch (err: any) {
+      console.error('Error deleting orphan inventories:', err);
+      showToast('Error al eliminar los registros huérfanos', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteSingleOrphan = async (inventoryId: string) => {
+    if (!(await showConfirm('Eliminar Registro Huérfano', '¿Desea eliminar este registro de inventario con artículo no encontrado?', { type: 'danger' }))) return;
+    try {
+      setLoading(true);
+      await deleteDoc(doc(db, 'warehouse_inventory', inventoryId));
+      showToast('Registro huérfano eliminado exitosamente', 'success');
+      await fetchData();
+    } catch (err: any) {
+      console.error('Error deleting single orphan:', err);
+      showToast('Error al eliminar el registro', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOpenRecoveryModal = (invId?: string) => {
+    setSelectedOrphanInvId(invId || null);
+    setIsRecoveryModalOpen(true);
+  };
+
   // Get articles and their quantities for a specific warehouse
   const getWarehouseStock = (warehouseId: string) => {
     return inventories
       .filter(inv => inv.warehouseId === warehouseId && inv.quantity > 0)
       .map(inv => {
         const article = articles.find(art => art.id === inv.articleId);
+        const isOrphan = !article;
+        const name = article 
+          ? (article.name || (article as any).computedName || (article as any).nombre || [article.category, article.brand, article.model].filter(Boolean).join(' ') || 'Artículo sin Nombre')
+          : `Artículo No Encontrado (ID: ${inv.articleId.slice(0, 8)}...)`;
         return {
+          inventoryId: inv.id,
           articleId: inv.articleId,
-          name: article ? article.name : 'Artículo Desconocido',
-          series: article?.series || '',
+          warehouseId: inv.warehouseId,
+          name,
+          series: (article as any)?.series || '',
           quantity: inv.quantity,
-          minStockAlert: article?.minStockAlert || 0
+          minStockAlert: article?.minStockAlert || 0,
+          isOrphan
         };
       });
   };
@@ -212,6 +295,41 @@ export default function WarehousesTab() {
         <div className="p-4 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/50 rounded-2xl text-red-600 dark:text-red-400 text-xs font-semibold flex items-center gap-2">
           <AlertTriangle className="w-4 h-4 flex-shrink-0" />
           <span>{error}</span>
+        </div>
+      )}
+
+      {/* Orphan Inventory Warning & Recovery Banner */}
+      {orphanInventories.length > 0 && (
+        <div className="p-4 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-amber-500 text-white rounded-xl flex-shrink-0">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="text-xs font-black text-amber-900 dark:text-amber-200 uppercase tracking-tight">
+                Atención: {orphanInventories.length} registro(s) de inventario huérfano(s)
+              </h4>
+              <p className="text-xs text-amber-700 dark:text-amber-400 font-medium">
+                Existen registros en bodega con un código de artículo no encontrado en el catálogo principal.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 self-end sm:self-auto flex-wrap">
+            <button
+              onClick={handleDeleteAllOrphans}
+              className="px-3.5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-sm flex items-center gap-1.5"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Eliminar Huérfanos</span>
+            </button>
+            <button
+              onClick={() => handleOpenRecoveryModal()}
+              className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-sm flex items-center gap-1.5"
+            >
+              <Wrench className="w-3.5 h-3.5" />
+              <span>Herramienta Autorrecuperación</span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -305,14 +423,20 @@ export default function WarehousesTab() {
                       ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           {stockItems.map(item => {
-                            const isLowStock = item.quantity <= item.minStockAlert;
+                            const isLowStock = !item.isOrphan && item.quantity <= item.minStockAlert;
                             return (
                               <div 
-                                key={item.articleId}
-                                className="flex items-center justify-between p-4 bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-100 dark:border-neutral-800 shadow-sm"
+                                key={item.inventoryId || item.articleId}
+                                className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-2xl border shadow-sm gap-3 ${
+                                  item.isOrphan 
+                                    ? 'bg-amber-50/50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800/60'
+                                    : 'bg-white dark:bg-neutral-900 border-neutral-100 dark:border-neutral-800'
+                                }`}
                               >
                                 <div className="flex items-center gap-3">
-                                  <div className="w-8 h-8 bg-neutral-50 dark:bg-neutral-800 rounded-lg flex items-center justify-center text-neutral-400">
+                                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                                    item.isOrphan ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-600' : 'bg-neutral-50 dark:bg-neutral-800 text-neutral-400'
+                                  }`}>
                                     <Package className="w-4 h-4" />
                                   </div>
                                   <div>
@@ -320,22 +444,58 @@ export default function WarehousesTab() {
                                     {item.series && (
                                       <span className="text-[10px] font-mono text-neutral-400 uppercase">S/N: {item.series}</span>
                                     )}
+                                    {item.isOrphan && (
+                                      <div className="flex items-center gap-2 mt-1">
+                                        <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-tight flex items-center gap-1">
+                                          <AlertTriangle className="w-3 h-3" />
+                                          Artículo No Encontrado en Catálogo
+                                        </span>
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
-                                <div className="flex items-center gap-2">
-                                  {isLowStock && (
-                                    <span className="p-1 bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 rounded-lg" title="¡Stock bajo!">
-                                      <AlertTriangle className="w-3.5 h-3.5" />
-                                    </span>
+
+                                <div className="flex items-center gap-2 self-end sm:self-auto">
+                                  {item.isOrphan ? (
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="px-2.5 py-1 text-xs font-black rounded-lg bg-amber-500 text-white">
+                                        {item.quantity} uds
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleOpenRecoveryModal(item.inventoryId)}
+                                        className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 transition-all"
+                                        title="Reasignar a un artículo real"
+                                      >
+                                        <Wrench className="w-3 h-3" />
+                                        <span>Reasignar</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDeleteSingleOrphan(item.inventoryId)}
+                                        className="p-1 hover:bg-red-100 dark:hover:bg-red-950/40 text-red-600 dark:text-red-400 rounded-lg transition-colors"
+                                        title="Eliminar este registro huérfano"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      {isLowStock && (
+                                        <span className="p-1 bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 rounded-lg" title="¡Stock bajo!">
+                                          <AlertTriangle className="w-3.5 h-3.5" />
+                                        </span>
+                                      )}
+                                      <span className={cn(
+                                        "px-3 py-1 text-xs font-black rounded-lg min-w-10 text-center",
+                                        isLowStock
+                                          ? "bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400"
+                                          : "bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400"
+                                      )}>
+                                        {item.quantity} uds
+                                      </span>
+                                    </>
                                   )}
-                                  <span className={cn(
-                                    "px-3 py-1 text-xs font-black rounded-lg min-w-10 text-center",
-                                    isLowStock
-                                      ? "bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400"
-                                      : "bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400"
-                                  )}>
-                                    {item.quantity} uds
-                                  </span>
                                 </div>
                               </div>
                             );
@@ -430,6 +590,18 @@ export default function WarehousesTab() {
           </div>
         </div>
       )}
+      {/* Inventory Recovery Tool Modal */}
+      <InventoryRecoveryModal
+        isOpen={isRecoveryModalOpen}
+        onClose={() => setIsRecoveryModalOpen(false)}
+        orphanInventories={orphanInventories}
+        warehouses={warehouses}
+        articles={articles}
+        initialSelectedInvId={selectedOrphanInvId}
+        onSuccess={fetchData}
+        currentEnterpriseId={currentEnterpriseId || ''}
+        userId={user?.uid || ''}
+      />
     </div>
   );
 }

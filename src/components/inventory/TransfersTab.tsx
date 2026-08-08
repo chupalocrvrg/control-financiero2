@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useNotification } from '../../contexts/NotificationContext';
 import { Warehouse, Article, WarehouseInventory, Transfer } from '../../types/inventory';
 import { ArticleSelector } from './ArticleSelector';
-import { executeTransfer, revertTransfer } from '../../lib/inventory-db';
+import { executeTransfer, revertTransfer, fetchInventoryCollection, ensureArticlesLoaded } from '../../lib/inventory-db';
 import { ArrowLeftRight, AlertTriangle, Plus, Trash2, Calendar, FileText, Check, HelpCircle, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '../../lib/utils';
@@ -57,36 +57,35 @@ export default function TransfersTab() {
       setError('');
       
       // Fetch warehouses
-      const whQ = query(collection(db, 'warehouses'), where('userId', '==', currentEnterpriseId));
-      const whSnap = await getDocs(whQ);
-      const whList = whSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Warehouse));
+      const whList = await fetchInventoryCollection<Warehouse>('warehouses', currentEnterpriseId || '', user?.uid, profile?.enterpriseId);
       setWarehouses(whList);
 
       // Fetch articles
-      const artQ = query(collection(db, 'articles'), where('userId', '==', currentEnterpriseId));
-      const artSnap = await getDocs(artQ);
-      const artList = artSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Article));
-      setArticles(artList);
+      let artList = await fetchInventoryCollection<Article>('articles', currentEnterpriseId || '', user?.uid, profile?.enterpriseId);
 
       // Fetch warehouse inventories
-      const invQ = query(collection(db, 'warehouse_inventory'), where('userId', '==', currentEnterpriseId));
-      const invSnap = await getDocs(invQ);
-      const invList = invSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as WarehouseInventory));
+      const invList = await fetchInventoryCollection<WarehouseInventory>('warehouse_inventory', currentEnterpriseId || '', user?.uid, profile?.enterpriseId);
       setInventories(invList);
 
       // Fetch past transfers
-      const transQ = query(collection(db, 'transfers'), where('userId', '==', currentEnterpriseId));
-      const transSnap = await getDocs(transQ);
-      const transList = transSnap.docs.map(doc => {
-        const data = doc.data();
+      const rawTransList = await fetchInventoryCollection<any>('transfers', currentEnterpriseId || '', user?.uid, profile?.enterpriseId);
+      const transList = rawTransList.map(data => {
         return {
-          id: doc.id,
+          id: data.id,
           ...data,
-          timestamp: data.timestamp?.toDate ? data.timestamp.toDate() : new Date(data.timestamp)
+          timestamp: data.timestamp?.toDate ? data.timestamp.toDate() : (data.timestamp ? new Date(data.timestamp) : new Date())
         } as unknown as Transfer;
-      }).sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+      }).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
       
       setTransfers(transList);
+
+      // Ensure all articles referenced in inventories or transfers are loaded
+      const referencedIds = [
+        ...invList.map(i => i.articleId),
+        ...transList.flatMap(t => t.articles?.map(item => item.articleId) || [])
+      ];
+      artList = await ensureArticlesLoaded<Article>(artList, referencedIds);
+      setArticles(artList);
 
       // Set defaults for form
       if (whList.length > 1) {

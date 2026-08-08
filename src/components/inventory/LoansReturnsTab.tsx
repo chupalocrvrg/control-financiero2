@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useNotification } from '../../contexts/NotificationContext';
 import { Warehouse, Article, WarehouseInventory, LoanReturn } from '../../types/inventory';
 import { ArticleSelector } from './ArticleSelector';
-import { executeLoanReturn, revertLoanReturn } from '../../lib/inventory-db';
+import { executeLoanReturn, revertLoanReturn, fetchInventoryCollection, ensureArticlesLoaded } from '../../lib/inventory-db';
 import { ShoppingBag, AlertTriangle, Plus, Trash2, Calendar, FileText, Check, Search, User, ArrowUpRight, ArrowDownLeft, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '../../lib/utils';
@@ -118,39 +118,38 @@ export default function LoansReturnsTab() {
       setError('');
       
       // Fetch warehouses
-      const whQ = query(collection(db, 'warehouses'), where('userId', '==', currentEnterpriseId));
-      const whSnap = await getDocs(whQ);
-      const whList = whSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Warehouse));
+      const whList = await fetchInventoryCollection<Warehouse>('warehouses', currentEnterpriseId || '', user?.uid, profile?.enterpriseId);
       setWarehouses(whList);
       if (whList.length > 0 && !warehouseId) {
         setWarehouseId(whList[0].id);
       }
 
       // Fetch articles
-      const artQ = query(collection(db, 'articles'), where('userId', '==', currentEnterpriseId));
-      const artSnap = await getDocs(artQ);
-      const artList = artSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Article));
-      setArticles(artList);
+      let artList = await fetchInventoryCollection<Article>('articles', currentEnterpriseId || '', user?.uid, profile?.enterpriseId);
 
       // Fetch warehouse inventories (to validate returns stock)
-      const invQ = query(collection(db, 'warehouse_inventory'), where('userId', '==', currentEnterpriseId));
-      const invSnap = await getDocs(invQ);
-      const invList = invSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as WarehouseInventory));
+      const invList = await fetchInventoryCollection<WarehouseInventory>('warehouse_inventory', currentEnterpriseId || '', user?.uid, profile?.enterpriseId);
       setInventories(invList);
 
       // Fetch past loans & returns
-      const lrQ = query(collection(db, 'loans_returns'), where('userId', '==', currentEnterpriseId));
-      const lrSnap = await getDocs(lrQ);
-      const lrList = lrSnap.docs.map(doc => {
-        const data = doc.data();
+      const rawLrList = await fetchInventoryCollection<any>('loans_returns', currentEnterpriseId || '', user?.uid, profile?.enterpriseId);
+      const lrList = rawLrList.map(data => {
         return {
-          id: doc.id,
+          id: data.id,
           ...data,
-          timestamp: data.timestamp?.toDate ? data.timestamp.toDate() : new Date(data.timestamp)
+          timestamp: data.timestamp?.toDate ? data.timestamp.toDate() : (data.timestamp ? new Date(data.timestamp) : new Date())
         } as unknown as LoanReturn;
-      }).sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+      }).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
       
       setLogs(lrList);
+
+      // Ensure all articles referenced in inventories or loans/returns are loaded
+      const referencedIds = [
+        ...invList.map(i => i.articleId),
+        ...lrList.flatMap(lr => lr.articles?.map(item => item.articleId) || [])
+      ];
+      artList = await ensureArticlesLoaded<Article>(artList, referencedIds);
+      setArticles(artList);
 
       // Build predictive list of commercial houses from past logs
       const uniqueHouses = Array.from(new Set(lrList.map(l => l.commercialHouse.trim())))

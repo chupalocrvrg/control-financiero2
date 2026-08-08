@@ -30,7 +30,8 @@ export function ArticleSelector({ articles, inventories, warehouseId, articleId,
 
   useEffect(() => {
     if (selectedArticle) {
-      setSearch(`${selectedArticle.name} ${selectedArticle.brand || ''} ${selectedArticle.model || ''}`.trim());
+      const artName = selectedArticle.name || (selectedArticle as any).computedName || (selectedArticle as any).nombre || '';
+      setSearch(`${artName} ${selectedArticle.brand || ''} ${selectedArticle.model || ''}`.trim());
     } else {
       setSearch('');
     }
@@ -54,11 +55,12 @@ export function ArticleSelector({ articles, inventories, warehouseId, articleId,
 
   const filteredArticles = articles.filter(art => {
     const s = search.toLowerCase();
-    const barcodeMatch = art.barcode?.toLowerCase().includes(s);
-    const nameMatch = art.name.toLowerCase().includes(s);
-    const brandMatch = art.brand?.toLowerCase().includes(s);
-    const modelMatch = art.model?.toLowerCase().includes(s);
-    const catMatch = art.category?.toLowerCase().includes(s);
+    const barcodeMatch = Boolean(art.barcode && art.barcode.toLowerCase().includes(s));
+    const artName = art.name || (art as any).computedName || (art as any).nombre || [art.category, art.brand, art.model].filter(Boolean).join(' ') || '';
+    const nameMatch = artName.toLowerCase().includes(s);
+    const brandMatch = Boolean(art.brand && art.brand.toLowerCase().includes(s));
+    const modelMatch = Boolean(art.model && art.model.toLowerCase().includes(s));
+    const catMatch = Boolean(art.category && art.category.toLowerCase().includes(s));
     return barcodeMatch || nameMatch || brandMatch || modelMatch || catMatch;
   });
 

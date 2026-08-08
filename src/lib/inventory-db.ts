@@ -11,6 +11,137 @@ import {
   Timestamp 
 } from 'firebase/firestore';
 
+export function normalizeArticleData(data: any, id: string): any {
+  const name =
+    data?.name ||
+    data?.computedName ||
+    data?.nombre ||
+    data?.description ||
+    [data?.category, data?.brand, data?.model].filter(Boolean).join(' ') ||
+    'Artículo sin Nombre';
+
+  return {
+    id,
+    ...data,
+    name,
+    quantity: typeof data?.quantity === 'number' ? data.quantity : 0,
+    minStockAlert: typeof data?.minStockAlert === 'number' ? data.minStockAlert : 5,
+    category: data?.category || '',
+    brand: data?.brand || '',
+    model: data?.model || '',
+    barcode: data?.barcode || '',
+    seriesList: Array.isArray(data?.seriesList) ? data.seriesList : []
+  };
+}
+
+/**
+ * Helper to fetch documents from an inventory collection (articles, warehouses, warehouse_inventory, etc.)
+ * matching any of the user's target IDs (primary enterpriseId, auth user UID, profile enterpriseId).
+ * Ensures documents created by staff/bodegueros prior to linking or under alternate user IDs are seamlessly retrieved.
+ */
+export async function fetchInventoryCollection<T>(
+  collectionName: string,
+  primaryEnterpriseId: string,
+  userUid?: string,
+  profileEnterpriseId?: string
+): Promise<T[]> {
+  const targetIds = Array.from(
+    new Set(
+      [primaryEnterpriseId, userUid, profileEnterpriseId]
+        .filter((id): id is string => Boolean(id && typeof id === 'string' && id.trim() !== ''))
+    )
+  );
+
+  const resultMap = new Map<string, T>();
+
+  const processDoc = (docSnap: any) => {
+    const data = docSnap.data();
+    if (collectionName === 'articles') {
+      resultMap.set(docSnap.id, normalizeArticleData(data, docSnap.id) as T);
+    } else {
+      resultMap.set(docSnap.id, { id: docSnap.id, ...data } as T);
+    }
+  };
+
+  // 1. Try a full collection read (works if security rules allow reading all documents for the user/enterprise)
+  try {
+    const fullSnap = await getDocs(collection(db, collectionName));
+    fullSnap.docs.forEach((docSnap) => {
+      const data = docSnap.data();
+      const matchesTarget = targetIds.length === 0 || targetIds.some(id => 
+        data.userId === id || data.enterpriseId === id || data.createdBy === id || !data.enterpriseId
+      );
+      if (matchesTarget || targetIds.length === 0) {
+        processDoc(docSnap);
+      }
+    });
+  } catch (err) {
+    // If full collection query is restricted by rules, proceed to targeted field queries below
+  }
+
+  // 2. Perform targeted field queries for all target IDs
+  if (targetIds.length > 0) {
+    const queryPromises: Promise<any>[] = [];
+    for (const id of targetIds) {
+      queryPromises.push(getDocs(query(collection(db, collectionName), where('userId', '==', id))));
+      queryPromises.push(getDocs(query(collection(db, collectionName), where('enterpriseId', '==', id))));
+      queryPromises.push(getDocs(query(collection(db, collectionName), where('createdBy', '==', id))));
+    }
+
+    const snapshots = await Promise.all(
+      queryPromises.map(p => p.catch(() => null))
+    );
+
+    snapshots.forEach(snap => {
+      if (snap && 'docs' in snap) {
+        snap.docs.forEach((docSnap: any) => {
+          processDoc(docSnap);
+        });
+      }
+    });
+  }
+
+  return Array.from(resultMap.values());
+}
+
+/**
+ * Ensures that any article referenced by ID (e.g. in warehouse_inventory, sales, transfers, loans)
+ * is present in the articles array. If missing, attempts to fetch it directly by document ID.
+ */
+export async function ensureArticlesLoaded<T extends { id: string }>(
+  existingArticles: T[],
+  referencedArticleIds: string[]
+): Promise<T[]> {
+  const resultMap = new Map<string, T>();
+  existingArticles.forEach(art => {
+    if (art && art.id) {
+      const normalized = normalizeArticleData(art, art.id);
+      resultMap.set(art.id, normalized as unknown as T);
+    }
+  });
+
+  const missingIds = Array.from(
+    new Set(referencedArticleIds.filter(id => Boolean(id) && typeof id === 'string' && !resultMap.has(id)))
+  );
+
+  if (missingIds.length === 0) {
+    return Array.from(resultMap.values());
+  }
+
+  const docSnaps = await Promise.all(
+    missingIds.map(id => getDoc(doc(db, 'articles', id)).catch(() => null))
+  );
+
+  docSnaps.forEach(snap => {
+    if (snap && snap.exists()) {
+      const normalized = normalizeArticleData(snap.data(), snap.id);
+      resultMap.set(snap.id, normalized as unknown as T);
+    }
+  });
+
+  return Array.from(resultMap.values());
+}
+
 /**
  * Adjusts the stock of a specific article in a warehouse and updates its total global stock.
  * Uses Firestore runTransaction to prevent race conditions.
